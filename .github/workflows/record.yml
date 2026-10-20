@@ -1,0 +1,77 @@
+name: Stream Recorder
+
+on:
+  workflow_dispatch:
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - "@Apka-aashu|UCGFi8l9sf5ab4hVJf7byBZg"
+          - "@baskarfiroz15|UCSuA9LrSsE4-GSaSYDUZhNw"
+          - "@anshhhlive_1|UC3NiNPo4kJYnYYhV_6ZnUGw"
+          - "@BagadBillagang-p6s|UC6_0vYIN2dy3MvBuUSvtZJg"
+          - "@_heyb7|UCiFH1EwIHWmPayYRuDGOHPA"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run Recorder
+        env:
+          TARGET_DATA: ${{ matrix.target }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [ -n "$YT_COOKIES" ]; then
+            echo "$YT_COOKIES" > cookies.txt
+            export USE_COOKIES="true"
+            export COOKIE_FILE="cookies.txt"
+          else
+            export USE_COOKIES="false"
+            export COOKIE_FILE=""
+          fi
+
+          export CHANNEL_HANDLE=$(echo "$TARGET_DATA" | cut -d'|' -f1)
+          export TARGET_CHANNEL_ID=$(echo "$TARGET_DATA" | cut -d'|' -f2)
+          export HOURS="5.0"
+          export OUT_DIR="./streams"
+
+          python3 recorder.py
+
+      - name: Auto-Upload to Gofile
+        if: always()
+        run: |
+          sudo apt-get install -y jq curl
+          mkdir -p ./streams
+
+          FILES=$(find ./streams -type f \( -name "*.ts" -o -name "*.part" \) -size +1M)
+
+          if [ -z "$FILES" ]; then
+            echo "No stream recorded to upload."
+            exit 0
+          fi
+
+          for f in $FILES; do
+            echo "Uploading $f to Gofile.io..."
+            RESP=$(curl -s -X POST "https://upload.gofile.io/uploadfile" -F "file=@$f")
+            STATUS=$(echo "$RESP" | jq -r '.status')
+            if [ "$STATUS" == "ok" ]; then
+              LINK=$(echo "$RESP" | jq -r '.data.downloadPage')
+              echo "=================================================="
+              echo "UPLOAD SUCCESSFUL!"
+              echo "File: $(basename $f)"
+              echo "Download Link: $LINK"
+              echo "=================================================="
+            else
+              echo "Upload failed, response: $RESP"
+            fi
+          done
