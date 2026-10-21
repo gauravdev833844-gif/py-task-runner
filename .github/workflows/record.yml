@@ -1,21 +1,40 @@
-name: Stream Recorder
+name: Audited YouTube Recorder - YT Task 4
 
 on:
   workflow_dispatch:
+  schedule:
+    # Shift 1: Raat 08:28 PM IST (14:58 UTC) -> 01:46 AM IST tak
+    - cron: '58 14 * * *'
+    # Shift 2: Raat 01:15 AM IST (19:45 UTC) -> 06:33 AM IST tak (31 min safe overlap)
+    - cron: '45 19 * * *'
 
 jobs:
   record:
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 355
     strategy:
       fail-fast: false
       matrix:
-        target:
-          - "@Apka-aashu|UCGFi8l9sf5ab4hVJf7byBZg"
-          - "@baskarfiroz15|UCSuA9LrSsE4-GSaSYDUZhNw"
-          - "@anshhhlive_1|UC3NiNPo4kJYnYYhV_6ZnUGw"
-          - "@BagadBillagang-p6s|UC6_0vYIN2dy3MvBuUSvtZJg"
-          - "@_heyb7|UCiFH1EwIHWmPayYRuDGOHPA"
+        streamer:
+          - name: "GOREDOXLIVE"
+            handle: "@GOREDOXLIVE"
+            id: "UC8MRu8goXUOM-_YaGsUvsmQ"
+
+          - name: "prankurv123"
+            handle: "@prankurv123"
+            id: "UCYe2VVWgjUoEEn9LaLSCk9w"
+
+          - name: "itsanvro"
+            handle: "@itsanvro"
+            id: "UC-fYhYPs1OJNAtE9SjEb5Hw"
+
+          - name: "aadarshyadav1"
+            handle: "@aadarshyadav1"
+            id: "UCyUlOENwi_2p_5Hv2fvkQvQ"
+
+          - name: "nihaanbhattagainn"
+            handle: "@nihaanbhattagainn"
+            id: "UC7fUm_Vc21j2Njra8VUHiaA"
 
     steps:
       - name: Checkout Repository
@@ -28,50 +47,17 @@ jobs:
 
       - name: Run Recorder
         env:
-          TARGET_DATA: ${{ matrix.target }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          CHANNEL_HANDLE: ${{ matrix.streamer.handle }}
+          TARGET_CHANNEL_ID: ${{ matrix.streamer.id }}
+          HOURS: "5.3"
+          OUT_DIR: "./streams"
+          USE_COOKIES: ${{ secrets.YT_COOKIES != '' && 'true' || 'false' }}
+          COOKIE_FILE: "cookies.txt"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           if [ -n "$YT_COOKIES" ]; then
             echo "$YT_COOKIES" > cookies.txt
-            export USE_COOKIES="true"
-            export COOKIE_FILE="cookies.txt"
-          else
-            export USE_COOKIES="false"
-            export COOKIE_FILE=""
           fi
-
-          export CHANNEL_HANDLE=$(echo "$TARGET_DATA" | cut -d'|' -f1)
-          export TARGET_CHANNEL_ID=$(echo "$TARGET_DATA" | cut -d'|' -f2)
-          export HOURS="5.0"
-          export OUT_DIR="./streams"
-
           python3 recorder.py
-
-      - name: Auto-Upload to Gofile
-        if: always()
-        run: |
-          sudo apt-get install -y jq curl
-          mkdir -p ./streams
-
-          FILES=$(find ./streams -type f \( -name "*.ts" -o -name "*.part" \) -size +1M)
-
-          if [ -z "$FILES" ]; then
-            echo "No stream recorded to upload."
-            exit 0
-          fi
-
-          for f in $FILES; do
-            echo "Uploading $f to Gofile.io..."
-            RESP=$(curl -s -X POST "https://upload.gofile.io/uploadfile" -F "file=@$f")
-            STATUS=$(echo "$RESP" | jq -r '.status')
-            if [ "$STATUS" == "ok" ]; then
-              LINK=$(echo "$RESP" | jq -r '.data.downloadPage')
-              echo "=================================================="
-              echo "UPLOAD SUCCESSFUL!"
-              echo "File: $(basename $f)"
-              echo "Download Link: $LINK"
-              echo "=================================================="
-            else
-              echo "Upload failed, response: $RESP"
-            fi
-          done
