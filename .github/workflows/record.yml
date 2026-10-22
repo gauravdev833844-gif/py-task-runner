@@ -13,8 +13,6 @@ permissions:
 env:
   HOURS: '5.0'
   OUT_DIR: './streams'
-  USE_COOKIES: 'false'
-  COOKIE_FILE: ''
 
 jobs:
   prepare:
@@ -63,7 +61,18 @@ jobs:
         env:
           CHANNEL_HANDLE: ${{ matrix.channel.handle }}
           TARGET_CHANNEL_ID: ${{ matrix.channel.id }}
-        run: python recorder.py
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          if [[ -n "$YT_COOKIES" ]]; then
+            printf '%s' "$YT_COOKIES" > cookies.txt
+            export USE_COOKIES='true'
+            export COOKIE_FILE='cookies.txt'
+          else
+            echo 'YT_COOKIES secret is missing; continuing without cookies.'
+            export USE_COOKIES='false'
+            export COOKIE_FILE=''
+          fi
+          python recorder.py
       - name: Upload separate recording files to Gofile
         if: always()
         run: |
