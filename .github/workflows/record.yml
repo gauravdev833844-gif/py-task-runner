@@ -3,9 +3,9 @@ name: YouTube Live Recorder
 on:
   workflow_dispatch:
   schedule:
-    # 20:20 India time (14:50 UTC); GitHub can delay scheduled runs.
-    - cron: '50 14 * * *'  # Shift 1: 20:20–01:20 IST
-    - cron: '20 19 * * *'  # Shift 2: 00:50–05:50 IST
+    # Shift 1: 20:20 IST (8:20 PM) | Shift 2: 00:50 IST (12:50 AM)
+    - cron: '50 14 * * *'
+    - cron: '20 19 * * *'
 
 permissions:
   contents: read
@@ -47,16 +47,25 @@ jobs:
     name: Record ${{ matrix.channel.handle }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: 🧹 Free up 30GB disk space (So FFmpeg concat never runs out of space)
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
+          df -h /
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+
       - name: Install system tools
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y ffmpeg curl jq
+
       - name: Record this channel for five hours
         env:
           CHANNEL_HANDLE: ${{ matrix.channel.handle }}
@@ -73,39 +82,93 @@ jobs:
             export COOKIE_FILE=''
           fi
           python recorder.py
-      - name: Upload separate recording files to Gofile
+
+      - name: ☁️ Upload to Gofile (+ Pixeldrain Fallback) & Send Telegram Alert
         if: always()
+        env:
+          CHANNEL_HANDLE: ${{ matrix.channel.handle }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           mkdir -p streams
           failed=0
           found=0
+
+          # If final concat file exists in ./streams, upload only final files (ignore leftover _chunks).
+          # If concat failed and only _chunks exist, upload the chunks so nothing is lost!
+          TOP_FILES=$(find streams -maxdepth 1 -type f -size +1M \( -name '*.ts' -o -name '*.part' \))
+          if [[ -n "$TOP_FILES" ]]; then
+            SEARCH_CMD=(find streams -maxdepth 1 -type f -size +1M \( -name '*.ts' -o -name '*.part' \) -print0)
+          else
+            SEARCH_CMD=(find streams -type f -size +1M \( -name '*.ts' -o -name '*.part' \) -print0)
+          fi
+
           while IFS= read -r -d '' f; do
             found=1
-            echo "Uploading $(basename "$f")"
+            fname=$(basename "$f")
+            fsize=$(du -h "$f" | cut -f1)
+            echo "Uploading $fname ($fsize)..."
             ok=0
+            link=""
+            host=""
+
+            # 1. Try Gofile (Dynamic best server + direct fallback)
             for attempt in 1 2 3; do
+              srv=$(curl -s --max-time 10 https://api.gofile.io/servers | jq -r '.data.servers[0].name // "upload"' 2>/dev/null || echo "upload")
+              if [[ "$srv" != "upload" && -n "$srv" ]]; then
+                up_url="https://${srv}.gofile.io/contents/uploadfile"
+              else
+                up_url="https://upload.gofile.io/uploadfile"
+              fi
+
               response=$(curl --fail --silent --show-error --max-time 1800 \
-                -X POST 'https://upload.gofile.io/uploadfile' \
+                -X POST "$up_url" \
                 -F "file=@$f" || true)
               status=$(printf '%s' "$response" | jq -r '.status // empty' 2>/dev/null || true)
               link=$(printf '%s' "$response" | jq -r '.data.downloadPage // empty' 2>/dev/null || true)
+
               if [[ "$status" == 'ok' && -n "$link" ]]; then
-                echo "$(basename "$f"): $link" | tee -a "$GITHUB_STEP_SUMMARY"
+                host="Gofile"
                 ok=1
                 break
               fi
-              echo "Upload attempt $attempt failed; retrying."
-              sleep $((attempt * 10))
+              echo "Gofile attempt $attempt failed; retrying..."
+              sleep $((attempt * 5))
             done
+
+            # 2. Fallback to Pixeldrain if Gofile failed
             if (( ok == 0 )); then
-              echo "UPLOAD FAILED; runner copy will be lost when this job ends: $(basename "$f")" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo "Gofile failed! Trying Pixeldrain fallback..."
+              pd_resp=$(curl --silent --max-time 1800 -T "$f" "https://pixeldrain.com/api/file/" || true)
+              pd_id=$(printf '%s' "$pd_resp" | jq -r '.id // empty' 2>/dev/null || true)
+              if [[ -n "$pd_id" && "$pd_id" != "null" ]]; then
+                link="https://pixeldrain.com/u/${pd_id}"
+                host="Pixeldrain"
+                ok=1
+              fi
+            fi
+
+            # 3. Log & Send Telegram Notification
+            if (( ok == 1 )); then
+              echo "$fname ($fsize) [$host]: $link" | tee -a "$GITHUB_STEP_SUMMARY"
+              if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_CHAT_ID" ]]; then
+                msg="✅ <b>${CHANNEL_HANDLE} Recorded!</b>%0A📂 <b>File:</b> <code>${fname}</code> (${fsize})%0A☁️ <b>Host:</b> ${host}%0A🔗 <b>Link:</b> ${link}"
+                curl -s --max-time 15 -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                  -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                  -d "parse_mode=HTML" \
+                  -d "text=${msg}" > /dev/null || true
+              fi
+            else
+              echo "UPLOAD FAILED on both hosts: $fname" | tee -a "$GITHUB_STEP_SUMMARY"
               failed=1
             fi
-          done < <(find streams -type f -size +1M -name '*.ts' -print0; find streams -type f -size +1M -name '*.part' -print0)
+          done < <("${SEARCH_CMD[@]}")
+
           if (( found == 0 )); then
             echo 'No recording file found.' | tee -a "$GITHUB_STEP_SUMMARY"
           fi
           exit "$failed"
+
       - name: Save small diagnostic files
         if: always()
         uses: actions/upload-artifact@v4
