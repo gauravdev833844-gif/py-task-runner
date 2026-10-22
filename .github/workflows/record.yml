@@ -1,63 +1,109 @@
-name: Audited YouTube Recorder - YT Task 4
+name: YouTube Live Recorder
 
 on:
   workflow_dispatch:
   schedule:
-    # Shift 1: Raat 08:28 PM IST (14:58 UTC) -> 01:46 AM IST tak
-    - cron: '58 14 * * *'
-    # Shift 2: Raat 01:15 AM IST (19:45 UTC) -> 06:33 AM IST tak (31 min safe overlap)
-    - cron: '45 19 * * *'
+    # 20:20 India time (14:50 UTC); GitHub can delay scheduled runs.
+    - cron: '50 14 * * *'  # Shift 1: 20:20–01:20 IST
+    - cron: '20 19 * * *'  # Shift 2: 00:50–05:50 IST
+
+permissions:
+  contents: read
+
+env:
+  HOURS: '5.0'
+  OUT_DIR: './streams'
+  USE_COOKIES: 'false'
+  COOKIE_FILE: ''
 
 jobs:
-  record:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 355
+    outputs:
+      matrix: ${{ steps.channels.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read channel list
+        id: channels
+        run: |
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          with open('channels.json', encoding='utf-8-sig') as f:
+              channels = json.load(f)
+          if not isinstance(channels, list) or not channels:
+              raise SystemExit('channels.json must be a non-empty JSON array')
+          for item in channels:
+              if not isinstance(item, dict) or not item.get('handle') or not item.get('id'):
+                  raise SystemExit('Each channel needs handle and id')
+          print('matrix=' + json.dumps({'channel': channels}, separators=(',', ':')))
+          PY
+
+  record:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
     strategy:
       fail-fast: false
-      matrix:
-        streamer:
-          - name: "GOREDOXLIVE"
-            handle: "@GOREDOXLIVE"
-            id: "UC8MRu8goXUOM-_YaGsUvsmQ"
-
-          - name: "prankurv123"
-            handle: "@prankurv123"
-            id: "UCYe2VVWgjUoEEn9LaLSCk9w"
-
-          - name: "itsanvro"
-            handle: "@itsanvro"
-            id: "UC-fYhYPs1OJNAtE9SjEb5Hw"
-
-          - name: "aadarshyadav1"
-            handle: "@aadarshyadav1"
-            id: "UCyUlOENwi_2p_5Hv2fvkQvQ"
-
-          - name: "nihaanbhattagainn"
-            handle: "@nihaanbhattagainn"
-            id: "UC7fUm_Vc21j2Njra8VUHiaA"
-
+      max-parallel: 20
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    name: Record ${{ matrix.channel.handle }}
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Run Recorder
-        env:
-          YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          CHANNEL_HANDLE: ${{ matrix.streamer.handle }}
-          TARGET_CHANNEL_ID: ${{ matrix.streamer.id }}
-          HOURS: "5.3"
-          OUT_DIR: "./streams"
-          USE_COOKIES: ${{ secrets.YT_COOKIES != '' && 'true' || 'false' }}
-          COOKIE_FILE: "cookies.txt"
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install system tools
         run: |
-          if [ -n "$YT_COOKIES" ]; then
-            echo "$YT_COOKIES" > cookies.txt
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg curl jq
+      - name: Record this channel for five hours
+        env:
+          CHANNEL_HANDLE: ${{ matrix.channel.handle }}
+          TARGET_CHANNEL_ID: ${{ matrix.channel.id }}
+        run: python recorder.py
+      - name: Upload separate recording files to Gofile
+        if: always()
+        run: |
+          mkdir -p streams
+          failed=0
+          found=0
+          while IFS= read -r -d '' f; do
+            found=1
+            echo "Uploading $(basename "$f")"
+            ok=0
+            for attempt in 1 2 3; do
+              response=$(curl --fail --silent --show-error --max-time 1800 \
+                -X POST 'https://upload.gofile.io/uploadfile' \
+                -F "file=@$f" || true)
+              status=$(printf '%s' "$response" | jq -r '.status // empty' 2>/dev/null || true)
+              link=$(printf '%s' "$response" | jq -r '.data.downloadPage // empty' 2>/dev/null || true)
+              if [[ "$status" == 'ok' && -n "$link" ]]; then
+                echo "$(basename "$f"): $link" | tee -a "$GITHUB_STEP_SUMMARY"
+                ok=1
+                break
+              fi
+              echo "Upload attempt $attempt failed; retrying."
+              sleep $((attempt * 10))
+            done
+            if (( ok == 0 )); then
+              echo "UPLOAD FAILED; runner copy will be lost when this job ends: $(basename "$f")" | tee -a "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+          done < <(find streams -type f -size +1M -name '*.ts' -print0; find streams -type f -size +1M -name '*.part' -print0)
+          if (( found == 0 )); then
+            echo 'No recording file found.' | tee -a "$GITHUB_STEP_SUMMARY"
           fi
-          python3 recorder.py
+          exit "$failed"
+      - name: Save small diagnostic files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.channel.handle }}-${{ github.run_id }}
+          path: |
+            streams/**/*_session.log
+            streams/**/*_summary.json
+          if-no-files-found: ignore
+          retention-days: 3
