@@ -30,6 +30,8 @@ CHANNEL_HANDLE = os.getenv("CHANNEL_HANDLE", "@Apka-aashu").strip()
 TARGET_CHANNEL_ID = os.getenv("TARGET_CHANNEL_ID", "UCGFi8l9sf5ab4hVJf7byBZg").strip()
 START_AT_IST = os.getenv("START_AT_IST", "").strip()
 HOURS = float(os.getenv("HOURS", "5.0"))
+if not 0 < HOURS <= 5.0:
+    raise SystemExit("HOURS must be greater than 0 and at most 5.0")
 OUT_DIR = os.getenv("OUT_DIR", "./streams").strip()
 
 COOKIE_FILE = os.getenv("COOKIE_FILE", "cookies.txt").strip()
@@ -764,8 +766,20 @@ def build_final_file(active):
             except Exception: pass
             return final_path
         log_raw("ffmpeg_concat_failed", result.stderr)
+        # Do not let the workflow mistake an incomplete FFmpeg output for a
+        # finished recording; keep the source chunks for per-chunk upload.
+        try:
+            if os.path.isfile(final_path):
+                os.remove(final_path)
+        except Exception:
+            pass
     except Exception as exc:
         log_raw("ffmpeg_concat_error", exc)
+        try:
+            if os.path.isfile(final_path):
+                os.remove(final_path)
+        except Exception:
+            pass
     return None
 
 
@@ -1112,6 +1126,7 @@ def wait_for_start_time():
 # MAIN
 # =============================================================================
 
+log(f"process_boot | channel={CHANNEL_HANDLE} | utc={datetime.utcnow().isoformat(timespec='seconds')}Z")
 install_dependencies()
 JS_ARGS = js_runtime_args()
 resolve_target_identity()
@@ -1173,7 +1188,11 @@ try:
                     active["cooldown_until"] = time.time() + FAILURE_COOLDOWN_SECONDS
                     save_active_state(active)
                     log(f"recovery_cooldown | reason={reason} | waiting={FAILURE_COOLDOWN_SECONDS}s")
-                    if active["offline_since"] is None:
+                    # A downloader/format/network failure does not prove the
+                    # stream went offline. Keep the same session alive and
+                    # continue recovery attempts; only explicit end signals
+                    # may start the offline grace timer.
+                    if reason in {"not_live", "normal_end"} and active["offline_since"] is None:
                         active["offline_since"] = time.time()
                         save_active_state(active)
 
