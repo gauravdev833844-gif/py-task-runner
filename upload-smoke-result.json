@@ -1,0 +1,10 @@
+{
+  "exit_code": 0,
+  "file_count": 2,
+  "all_uploaded": true,
+  "total_bytes": 468120,
+  "seconds": 2.42,
+  "verification": "Provider acknowledged matching size and MD5; download readback not tested",
+  "scope": "Two small generated files, sequential uploads, reused guest account; not multi-GB or five concurrent repositories",
+  "sources_preserved": true
+}
