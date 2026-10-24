@@ -78,6 +78,24 @@ class ScheduleTests(unittest.TestCase):
 
 
 class UploadTests(unittest.TestCase):
+    def test_backup_mode_tries_gofile_once(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); source = root/'capture.ts'; source.write_bytes(b'fixture')
+            pub = Publisher(root, root/'report.json', 1800, release_fallback=True)
+            with patch('publish_recordings.subprocess.run', return_value=subprocess.CompletedProcess([], 22, '', '')) as run, \
+                 patch('publish_recordings.time.sleep') as sleep:
+                with self.assertRaises(PublishError): pub.gofile(source, fingerprints(source))
+            self.assertEqual(run.call_count, 1)
+            sleep.assert_not_called()
+
+    def test_backup_reserve_skips_gofile_when_little_time_remains(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); source = root/'capture.ts'; source.write_bytes(b'fixture')
+            pub = Publisher(root, root/'report.json', 590, release_fallback=True)
+            with patch('publish_recordings.subprocess.run') as run:
+                with self.assertRaises(PublishError): pub.gofile(source, fingerprints(source))
+            run.assert_not_called()
+
     def test_gofile_attempt_allows_ten_minutes(self):
         with tempfile.TemporaryDirectory() as d, patch('publish_recordings.time.monotonic', return_value=1000):
             root = Path(d); source = root/'capture.ts'; source.write_bytes(b'fixture')

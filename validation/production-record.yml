@@ -10,9 +10,9 @@ on:
         default: 9
         type: number
       release_backup:
-        description: 'Opt-in GitHub Release backup; assets follow repository visibility'
+        description: 'Backup failed Gofile uploads to GitHub Releases (public in public repos)'
         required: true
-        default: false
+        default: true
         type: boolean
       session_start:
         description: 'Internal; leave empty for a fresh start'
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
-      contents: write  # Used only when Release backup was explicitly selected.
+      contents: write  # Required for the enabled Release backup.
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}

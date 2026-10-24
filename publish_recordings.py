@@ -135,8 +135,14 @@ class Publisher:
         os.replace(temporary, self.report)
 
     def gofile(self, path, metadata):
-        for attempt in range(2):
-            seconds = min(600, self.remaining())
+        # With backup enabled, spend at most one attempt on Gofile and retain
+        # at least ten minutes of the shared deadline for the backup path.
+        attempts = 1 if self.release_fallback else 2
+        for attempt in range(attempts):
+            available = self.remaining() - (600 if self.release_fallback else 0)
+            if available < 1:
+                raise PublishError('gofile_budget_reserved_for_backup')
+            seconds = min(600, available)
             config = ''
             if self.token:
                 if any(c in self.token for c in '\r\n"\\'):
@@ -159,7 +165,7 @@ class Publisher:
                     return {'provider': 'gofile', 'url': link, 'verification': 'provider_size_and_md5'}
                 except (ValueError, TypeError, AttributeError, PublishError):
                     pass
-            if attempt == 0 and self.remaining() > 6:
+            if attempt + 1 < attempts and self.remaining() > 6:
                 time.sleep(5)
         raise PublishError('gofile_upload_failed')
 

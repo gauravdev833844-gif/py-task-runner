@@ -1,42 +1,44 @@
-name: Bounded six-minute live and upload validation
+name: Validate uploader Release backup
 on:
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 6
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install dependencies
+      - name: Install test dependencies
         run: |
-          set -euo pipefail
           if ! command -v ffmpeg >/dev/null; then
             sudo apt-get update -qq
             sudo apt-get install -y ffmpeg
           fi
-          python -m pip install -q -r requirements.txt -r requirements-dev.txt
-      - name: Regression and generated-media tests
+          python -m pip install -q -r requirements-dev.txt
+      - name: Regression tests
         env:
           RECORD_WORKFLOW_PATH: validation/production-record.yml
         run: python -m unittest -v test_reliability
-      - name: Six-minute capture, complete decode and bounded Gofile upload
+      - name: Real draft Release fallback and readback
         env:
-          YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
-          GOFILE_FOLDER_ID: ${{ vars.GOFILE_FOLDER_ID }}
-        run: python validate_six_minutes.py
-      - name: Save small sanitized reports
+          GH_TOKEN: ${{ github.token }}
+        run: python validate_release_backup.py
+      - name: Cleanup test draft if interrupted
         if: always()
-        uses: actions/upload-artifact@v4
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="recorder-backup-${GITHUB_RUN_ID}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: six-minute-live-upload-validation
-          path: six-minute-validation/*.json
-          retention-days: 2
+          name: release-backup-validation
+          path: release-backup-validation/*.json
+          retention-days: 1
