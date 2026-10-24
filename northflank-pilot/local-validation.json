@@ -1,0 +1,15 @@
+{
+  "docker_build": "PASS",
+  "http_health": "PASS",
+  "missing_cookie_binding_handling": "PASS",
+  "non_root_uid": 10001,
+  "runtime_versions": {
+    "node": "22",
+    "python": "3.11",
+    "yt_dlp": "2026.10.21"
+  },
+  "known_media_complete_decode": "PASS",
+  "external_network_used_during_runtime_test": false,
+  "northflank_deployed": false,
+  "northflank_live_capture_verified": false
+}
