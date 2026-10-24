@@ -1,3 +1,5 @@
+> Deployment note: This is a development/testing prototype. Read CAPACITY_AND_LIMITS.md and OPEN_SOURCE_RESEARCH.md before deployment. The audit does not recommend GitHub-hosted Actions as an ongoing multi-stream recording/archival service. Use an owned runtime for sustained capture; existing account/provider terms and quotas still apply.
+
 # Start once; continue in overlapping overnight windows
 
 The production candidate uses one YouTube channel per repository. Start a session manually whenever monitoring should begin. Later shifts start automatically relative to that manual start; there is no fixed midnight cron schedule to remember.
@@ -18,9 +20,9 @@ Existing channel mappings:
 - py-task-repo4: @bekalki
 - py-task-reposit: @baskarfiroz15
 - py-task-runner: @BagadBillagang-p6s
-- fifth repository, name not supplied: @itstarunk4179
+- yt-recorder (proposed mapping): @itstarunk4179
 
-Use exactly one channel entry per repository. The fifth configuration intentionally has an empty ID; the recorder resolves identity from the supplied handle rather than inventing an ID.
+Use exactly one channel entry per repository. The yt-recorder configuration intentionally has an empty ID; the recorder resolves identity from the supplied handle rather than inventing an ID.
 
 Each repository needs a usable YT_COOKIES GitHub Actions secret for the verified authentication mode. Never commit cookies or include them in artifacts. The supplied cookies and other credentials are excluded from this bundle. The integration used here cannot create or read repository secrets through the API (HTTP 403); existing bindings are passed privately by Actions. Configure any missing bindings in GitHub Settings -> Secrets and variables -> Actions. Telegram credentials remain optional and only affect notifications. No Telegram messages or Gofile uploads were performed by the test runs.
 
@@ -56,3 +58,5 @@ To stop a session, cancel its active/queued recorder and next-shift jobs. Contin
 Run Actions -> Test live recording clients on a currently live public channel such as @SkyNews or @DWNews. It tries four clients with/without cookies serially. A pass requires live status, at least ten seconds of captured video, ffprobe readability and an FFmpeg decode. A metadata-only success is insufficient. Saved results record the exact yt-dlp version and authentication mode. A passing test on Sky News is not proof of access to a different target.
 
 Local scheduling checks: python -m unittest -v test_shifts. No network or real credentials are required for those local tests.
+
+New integrity regression: a complete decode exposed an audio-tail error in the older native-stop sample. The updated SIGINT-first shutdown passed a new 45-second full audio/video decode. See OPEN_SOURCE_RESEARCH.md for exact scope and run links. The probe validator now decodes the complete capture.

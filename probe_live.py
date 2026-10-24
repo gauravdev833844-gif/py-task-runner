@@ -144,7 +144,7 @@ def main():
                 report['status'] = 'INSUFFICIENT_VIDEO_CAPTURE'
                 return 1
             decode = subprocess.run(['ffmpeg', '-v', 'error', '-xerror', '-i', str(target),
-                                     '-t', '3', '-f', 'null', '-'], capture_output=True, timeout=20)
+                                     '-f', 'null', '-'], capture_output=True, timeout=20)
             if decode.returncode:
                 report['status'] = 'VIDEO_DECODE_FAILED'
                 return 1

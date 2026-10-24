@@ -551,15 +551,21 @@ def stop_proc(process):
     try:
         if process.poll() is not None:
             return
-        process.terminate()
-        process.wait(timeout=10)
+        # Let yt-dlp close its active fragment before falling back to termination.
+        process.send_signal(signal.SIGINT)
+        process.wait(timeout=20)
         return
     except Exception:
         try:
-            process.kill()
+            process.terminate()
             process.wait(timeout=5)
+            return
         except Exception:
-            pass
+            try:
+                process.kill()
+                process.wait(timeout=5)
+            except Exception:
+                pass
 
 
 def sigterm_handler(signum, frame):

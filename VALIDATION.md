@@ -18,3 +18,7 @@ The existing GitHub YT_COOKIES binding does NOT match the uploaded cookie file, 
 Nine local scheduling/dispatch tests passed, along with simulated bot-check/client-propagation regressions, generated-media recovery/finalization checks, and Python/YAML/shell syntax checks. No Gofile upload, Telegram delivery, private target channel capture, or overnight endurance run is claimed verified.
 
 Run links and sanitized machine-readable results are in validation-results.json. No credentials are included in this bundle.
+
+## Subsequent integrity regression
+
+The earlier native 54-second sample passed only the documented three-second decode check. A later complete-file decode found an audio-tail error. The candidate now tries graceful SIGINT before termination, and a new 45-second live recording passed complete audio/video decoding: https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40080361118 . Full details are in OPEN_SOURCE_RESEARCH.md. The older native sample should not be described as passing complete-file integrity.
