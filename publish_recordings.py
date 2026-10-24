@@ -179,7 +179,10 @@ class Publisher:
             result = subprocess.run(['gh', *args], capture_output=True, text=True,
                                     timeout=min(300, self.remaining()))
             if result.returncode:
-                raise PublishError('github_release_request_failed')
+                status = re.search(r'HTTP (\d{3})', result.stderr)
+                operation = '_'.join(args[:2]) if args[0] != 'api' else 'api'
+                raise PublishError('github_release_' + operation + '_failed' +
+                                   ('_http_' + status.group(1) if status else ''))
             return result.stdout
         exists = subprocess.run(['gh', 'release', 'view', tag, '--repo', repo],
                                 capture_output=True, timeout=min(30, self.remaining()))

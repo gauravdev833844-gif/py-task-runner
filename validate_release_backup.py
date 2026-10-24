@@ -54,9 +54,15 @@ except Exception as error:
     report['failure'] = str(error) if isinstance(error, RuntimeError) else type(error).__name__
 finally:
     if created:
-        cleanup = subprocess.run(['gh', 'release', 'delete', tag, '--repo', repo, '--yes', '--cleanup-tag'],
+        cleanup = subprocess.run(['gh', 'release', 'delete', tag, '--repo', repo, '--yes'],
                                  capture_output=True, timeout=30)
-        report['cleanup_success'] = cleanup.returncode == 0
+        tag_path = f'repos/{repo}/git/refs/tags/{tag}'
+        exists = subprocess.run(['gh', 'api', tag_path], capture_output=True, timeout=20)
+        tag_ok = True
+        if exists.returncode == 0:
+            removed = subprocess.run(['gh', 'api', tag_path, '--method', 'DELETE'], capture_output=True, timeout=20)
+            tag_ok = removed.returncode == 0
+        report['cleanup_success'] = cleanup.returncode == 0 and tag_ok
     if not report['cleanup_success']:
         report['status'] = 'FAIL'
     (out/'result.json').write_text(json.dumps(report, indent=2))
