@@ -36,11 +36,19 @@ Repository → Settings → Secrets and variables → Actions:
 
 The GitHub integration receives **HTTP 403 on the Secrets public-key API**, so it can install code but cannot save the supplied cookie file or Google credentials as repository secrets. Enter missing values in GitHub’s secret fields, never in chat/source files.
 
+## Own Google OAuth client (required in 2026)
+
+Rclone’s shared Drive client is being retired during 2026. At **Continue using the shared client_id anyway?**, select **n**. Follow https://rclone.org/drive/#making-your-own-client-id .
+
+Open https://console.cloud.google.com/ , create a project such as `youtube-recorder`, and enable **Google Drive API**. Google Cloud Storage is a different service; do not create a storage bucket or sign up for a paid VM/free-trial billing flow for this. Configure the Google Auth consent screen for your personal app, add only the `https://www.googleapis.com/auth/drive.file` scope needed by this setup, and create an OAuth client of type **Desktop app**. Enter that client ID and secret into rclone privately, then do browser authorization with the storage account.
+
+A Google OAuth app left in **Testing** typically has seven-day refresh-token expiry for this use. Before treating unattended access as persistent, complete the appropriate personal-app production setup under Google’s OAuth requirements. This is separate from purchasing Drive storage. Do not send client secrets, tokens, or configuration values in chat.
+
 ## One-time Windows Drive connection
 
 1. Download the Windows AMD64 ZIP from https://rclone.org/downloads/ and extract it. No card is required for rclone.
 2. Open PowerShell in the extracted folder and run `.\rclone.exe config`.
-3. Choose **New remote**, name it **drive**, select **Google Drive** as storage. Leave client ID/secret blank to use rclone’s built-in client.
+3. Choose **New remote**, name it **drive**, select **Google Drive** as storage. Use your own Google OAuth Desktop client ID/secret. The shared rclone client is being retired during 2026; do not continue with a blank shared client for unattended recording.
 4. Choose scope **Access to files created by rclone only (`drive.file`)**. Existing unrelated Drive files remain outside this scope. Leave service-account file blank; decline advanced settings; accept browser login.
 5. In the browser choose the Google account with your storage, authorize, then return to rclone. Select no shared/team Drive unless you specifically use one; save the remote and quit.
 6. Run `.\rclone.exe about drive:` to check the account’s reported capacity. This does not establish upload speed.
