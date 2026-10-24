@@ -1,0 +1,69 @@
+name: Test live recording clients
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: 'Public YouTube handle currently live; e.g. @SkyNews or @DWNews'
+        required: true
+        default: '@SkyNews'
+        type: string
+permissions:
+  contents: read
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        client: [web_safari, ios, android, default]
+        authentication: [cookies, no-cookies]
+    name: '${{ matrix.client }} / ${{ matrix.authentication }}'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Prepare dependencies
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg
+          fi
+          python -m pip install 'yt-dlp[default,curl-cffi]==2026.10.21'
+          python -m pip check
+      - name: Capture and verify video
+        env:
+          TEST_CHANNEL: ${{ inputs.channel }}
+          TEST_CLIENT: ${{ matrix.client }}
+          AUTHENTICATION: ${{ matrix.authentication }}
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          set -euo pipefail
+          cookie_path="$RUNNER_TEMP/youtube-probe-cookies.txt"
+          trap 'rm -f "$cookie_path"' EXIT
+          extra=()
+          if [[ "$AUTHENTICATION" == cookies ]]; then
+            if [[ -z "$YT_COOKIES" ]]; then
+              echo 'YT_COOKIES repository secret is missing; cookie test cannot run.'
+              exit 1
+            fi
+            umask 077
+            printf '%s' "$YT_COOKIES" > "$cookie_path"
+            extra=(--cookies "$cookie_path")
+          fi
+          unset YT_COOKIES
+          python probe_live.py --channel "$TEST_CHANNEL" --client "$TEST_CLIENT" "${extra[@]}" --out probe-results
+      - name: Preserve test result and short clip
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 'probe-${{ matrix.client }}-${{ matrix.authentication }}'
+          path: probe-results/
+          if-no-files-found: warn
+          retention-days: 1
