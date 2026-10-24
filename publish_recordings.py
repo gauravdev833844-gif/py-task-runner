@@ -210,6 +210,11 @@ class Publisher:
         if not re.fullmatch(r'[\w.-]+/[\w.-]+', repo) or not run.isdigit():
             raise PublishError('release_environment_missing')
         tag = 'recorder-backup-' + run
+        scope = os.environ.get('RELEASE_SCOPE', '')
+        if scope:
+            if not re.fullmatch(r'[A-Za-z0-9_-]{1,50}', scope):
+                raise PublishError('invalid_release_scope')
+            tag += '-' + scope
         def gh(*args):
             result = subprocess.run(['gh', *args], capture_output=True, text=True,
                                     timeout=min(300, self.remaining()))
