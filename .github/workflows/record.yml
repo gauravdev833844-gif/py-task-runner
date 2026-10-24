@@ -1,184 +1,77 @@
-name: YouTube Live Recorder
-
+name: Compare current Streamlink YouTube capture
 on:
   workflow_dispatch:
-    inputs:
-      duration_hours:
-        description: 'Recording window in hours (use 0.17 for a 10-minute authorized test; leave 5 for the evening run)'
-        required: false
-        default: 5
-        type: number
-  schedule:
-    # Shift 2 only: 00:50 India time (19:20 UTC). Start Shift 1 manually.
-    - cron: '20 19 * * *'
-
 permissions:
   contents: read
-
-env:
-  HOURS: ${{ github.event.inputs.duration_hours || '5.0' }}
-  OUT_DIR: './streams'
-
 jobs:
-  prepare:
+  streamlink:
     runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.channels.outputs.matrix }}
+    timeout-minutes: 6
     steps:
-      - uses: actions/checkout@v4
-      - name: Read channel list
-        id: channels
-        run: |
-          python - <<'PY' >> "$GITHUB_OUTPUT"
-          import json
-          with open('channels.json', encoding='utf-8-sig') as f:
-              channels = json.load(f)
-          if not isinstance(channels, list) or not channels:
-              raise SystemExit('channels.json must be a non-empty JSON array')
-          for item in channels:
-              if not isinstance(item, dict) or not item.get('handle') or not item.get('id'):
-                  raise SystemExit('Each channel needs handle and id')
-          print('matrix=' + json.dumps({'channel': channels}, separators=(',', ':')))
-          PY
-
-  record:
-    needs: prepare
-    runs-on: ubuntu-latest
-    # GitHub-hosted jobs have a hard execution ceiling; reserve the remaining
-    # time after the 5h monitor for finalization, upload and fallback artifact.
-    timeout-minutes: 360
-    strategy:
-      fail-fast: false
-      max-parallel: 20
-      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
-    name: Record ${{ matrix.channel.handle }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Free unused runner packages and report remaining disk
-        run: |
-          df -h /
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost
-          df -h /
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Install system tools
+      - name: Install pinned official packages
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y ffmpeg curl jq
-      - name: Record this channel for five hours
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg
+          fi
+          python -m pip install 'streamlink==8.6.2'
+      - name: Bounded authenticated capture and validation
         env:
-          CHANNEL_HANDLE: ${{ matrix.channel.handle }}
-          TARGET_CHANNEL_ID: ${{ matrix.channel.id }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
         run: |
-          if [[ -n "$YT_COOKIES" ]]; then
-            printf '%s' "$YT_COOKIES" > cookies.txt
-            export USE_COOKIES='true'
-            export COOKIE_FILE='cookies.txt'
-          else
-            echo 'YT_COOKIES secret is missing; continuing without cookies.'
-            export USE_COOKIES='false'
-            export COOKIE_FILE=''
-          fi
-          python recorder.py
-      - name: Upload recording files to Gofile
-        id: publish
+          python - <<'PY'
+          import os,pathlib,tempfile,subprocess,json,datetime,signal
+          out=pathlib.Path('results');out.mkdir()
+          report={'tested_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'tool':'Streamlink','version':'8.6.2','channel':'@SkyNews','cookies_used':True,'status':'UNVERIFIED'}
+          try:
+              with tempfile.TemporaryDirectory() as private:
+                  cookie=pathlib.Path(private)/'cookies.txt'
+                  value=os.environ.pop('YT_COOKIES','')
+                  if not value:
+                      report['status']='MISSING_COOKIE_BINDING';raise SystemExit(1)
+                  cookie.write_text(value);cookie.chmod(0o600)
+                  value=''
+                  cmd=['streamlink','--no-config','--loglevel','warning','--http-cookies-file',str(cookie),'--http-timeout','10','--retry-max','0','--stream-segmented-duration','20','--force','--output',str(out/'capture.ts'),'https://www.youtube.com/@SkyNews/live','720p,best']
+                  proc=subprocess.Popen(cmd,text=True,stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+                  try:stdout,stderr=proc.communicate(timeout=75)
+                  except subprocess.TimeoutExpired:
+                      os.killpg(proc.pid,signal.SIGINT)
+                      try:stdout,stderr=proc.communicate(timeout=5)
+                      except subprocess.TimeoutExpired:
+                          os.killpg(proc.pid,signal.SIGKILL);stdout,stderr=proc.communicate()
+                      report['status']='CAPTURE_TIMEOUT';raise SystemExit(1)
+                  report['exit_code']=proc.returncode
+                  if proc.returncode:
+                      errors=(stdout+stderr).casefold()
+                      if 'bot' in errors or 'sign in' in errors: report['status']='youtube_authentication_or_botcheck'
+                      elif 'no playable streams' in errors or 'no streams' in errors: report['status']='no_playable_streams'
+                      elif '403' in errors: report['status']='youtube_403'
+                      else:report['status']='extraction_or_download_failed'
+                      raise SystemExit(1)
+                  probe=subprocess.run(['ffprobe','-v','error','-show_format','-show_streams','-of','json',str(out/'capture.ts')],text=True,capture_output=True,timeout=15)
+                  if probe.returncode:
+                      report['status']='UNREADABLE_MEDIA';raise SystemExit(1)
+                  info=json.loads(probe.stdout)
+                  duration=float(info.get('format',{}).get('duration',0))
+                  report['captured_seconds']=duration
+                  if duration<10 or not any(s.get('codec_type')=='video' for s in info.get('streams',[])):
+                      report['status']='INSUFFICIENT_VIDEO';raise SystemExit(1)
+                  decode=subprocess.run(['ffmpeg','-v','error','-xerror','-i',str(out/'capture.ts'),'-t','3','-f','null','-'],capture_output=True,timeout=20)
+                  if decode.returncode:
+                      report['status']='DECODE_FAILED';raise SystemExit(1)
+                  report['status']='PASS'
+          finally:
+              (out/'result.json').write_text(json.dumps(report,indent=2))
+              print(json.dumps(report))
+          PY
+      - name: Preserve sanitized test result and clip
         if: always()
-        run: |
-          mkdir -p streams
-          failed=0
-          found=0
-          fallback_paths=''
-          links_file="$RUNNER_TEMP/recorder-links.txt"
-          : > "$links_file"
-          stagger=$(( (RANDOM % 56) + 5 ))
-          echo "Waiting ${stagger}s before upload to spread concurrent jobs."
-          sleep "$stagger"
-          while IFS= read -r -d '' f; do
-            found=1
-            echo "Uploading $(basename "$f")"
-            ok=0
-            for attempt in 1 2 3; do
-              response=$(curl --fail --silent --show-error --max-time 1800 \
-                -X POST 'https://upload.gofile.io/uploadfile' \
-                -F "file=@$f" || true)
-              status=$(printf '%s' "$response" | jq -r '.status // empty' 2>/dev/null || true)
-              link=$(printf '%s' "$response" | jq -r '.data.downloadPage // empty' 2>/dev/null || true)
-              if [[ "$status" == 'ok' && -n "$link" ]]; then
-                echo "$(basename "$f"): $link" | tee -a "$GITHUB_STEP_SUMMARY"
-                printf '%s: %s\n' "$(basename "$f")" "$link" >> "$links_file"
-                ok=1
-                break
-              fi
-              echo "Upload attempt $attempt failed; retrying."
-              sleep $((attempt * 10))
-            done
-            if (( ok == 0 )); then
-              echo "UPLOAD FAILED; scheduling Actions artifact backup: $(basename "$f")" | tee -a "$GITHUB_STEP_SUMMARY"
-              fallback_paths+="$f"$'\n'
-              failed=1
-            fi
-          done < <(find streams -type f -size +1M -name '*.ts' ! -name '*_short_exit_*' -print0)
-          if (( found == 0 )); then
-            echo 'No recording file found.' | tee -a "$GITHUB_STEP_SUMMARY"
-            echo '::warning::This channel job completed without a recording file.'
-          fi
-          {
-            printf 'fallback_paths<<EOF\n'
-            printf '%s' "$fallback_paths"
-            printf 'EOF\n'
-          } >> "$GITHUB_OUTPUT"
-          echo "links_file=$links_file" >> "$GITHUB_OUTPUT"
-          echo "found=$found" >> "$GITHUB_OUTPUT"
-          exit "$failed"
-      - name: Preserve failed uploads as a temporary video artifact
-        id: media-backup
-        if: always() && steps.publish.outputs.fallback_paths != ''
         uses: actions/upload-artifact@v4
         with:
-          name: video-backup-${{ matrix.channel.handle }}-${{ github.run_id }}
-          path: ${{ steps.publish.outputs.fallback_paths }}
-          if-no-files-found: error
-          compression-level: 0
+          name: streamlink-comparison
+          path: results/
           retention-days: 1
-      - name: Save small diagnostic files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: diagnostics-${{ matrix.channel.handle }}-${{ github.run_id }}
-          path: |
-            streams/**/*_session.log
-            streams/**/*_summary.json
-          if-no-files-found: ignore
-          retention-days: 3
-      - name: Send links to Telegram (text only)
-        if: always() && steps.publish.outputs.found == '1'
-        env:
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          LINKS_FILE: ${{ steps.publish.outputs.links_file }}
-          VIDEO_BACKUP_URL: ${{ steps['media-backup'].outputs['artifact-url'] }}
-          CHANNEL_HANDLE: ${{ matrix.channel.handle }}
-        run: |
-          if [[ -z "$TELEGRAM_BOT_TOKEN" || -z "$TELEGRAM_CHAT_ID" ]]; then
-            echo 'Telegram secrets are not configured; skipping text notification.'
-            exit 0
-          fi
-          message="YouTube recorder result: ${CHANNEL_HANDLE}"
-          if [[ -n "$LINKS_FILE" && -s "$LINKS_FILE" ]]; then
-            message+=$'\n'"$(cat "$LINKS_FILE")"
-          fi
-          if [[ -n "$VIDEO_BACKUP_URL" ]]; then
-            message+=$'\n'"Upload failed; temporary GitHub video backup (sign-in/access may be required): ${VIDEO_BACKUP_URL}"
-          fi
-          if [[ "$message" == "YouTube recorder result: ${CHANNEL_HANDLE}" ]]; then
-            message+=$'\nRecording files were found, but external upload failed. Check this job’s Summary and artifacts.'
-          fi
-          curl --fail --silent --show-error --max-time 30 \
-            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${message}"
