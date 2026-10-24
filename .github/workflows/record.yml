@@ -10,9 +10,9 @@ on:
         default: 9
         type: number
       release_backup:
-        description: 'Opt-in GitHub Release backup; assets follow repository visibility'
+        description: 'Backup failed Gofile uploads to GitHub Releases (public in public repos)'
         required: true
-        default: false
+        default: true
         type: boolean
       session_start:
         description: 'Internal; leave empty for a fresh start'
@@ -87,7 +87,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     permissions:
-      contents: write  # Used only when Release backup was explicitly selected.
+      contents: write  # Required for the enabled Release backup.
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
@@ -104,15 +104,15 @@ jobs:
         timeout-minutes: 10
         run: |
           set -euo pipefail
-          if ! command -v ffmpeg >/dev/null || ! command -v curl >/dev/null; then
+          if ! command -v ffmpeg >/dev/null || ! command -v curl >/dev/null || ! command -v rclone >/dev/null; then
             sudo apt-get update -qq
-            sudo apt-get install -y ffmpeg curl
+            sudo apt-get install -y ffmpeg curl rclone
           fi
           python -m pip install -q 'yt-dlp[default,curl-cffi]==2026.10.21'
           df -h .
       - name: Record current window
         id: capture
-        timeout-minutes: 310
+        timeout-minutes: 190
         continue-on-error: true
         env:
           CHANNEL_HANDLE: ${{ matrix.channel.handle }}
@@ -135,21 +135,23 @@ jobs:
           HOURS="$(python shift_plan.py --duration-until "$SESSION_DEADLINE")"
           export HOURS
           python recorder.py
-      - name: Upload with one shared 30-minute budget
+      - name: Upload to Drive first, then Gofile and Release fallback
         id: publish
         if: always() && steps.capture.outcome != 'skipped'
-        timeout-minutes: 31
+        timeout-minutes: 122
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
           GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
           GOFILE_FOLDER_ID: ${{ vars.GOFILE_FOLDER_ID }}
+          RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
+          GDRIVE_REMOTE: ${{ vars.GDRIVE_REMOTE || 'drive:YouTubeRecordings' }}
           RELEASE_BACKUP: ${{ inputs.release_backup }}
         run: |
           set -euo pipefail
           args=()
           if [[ "$RELEASE_BACKUP" == true ]]; then args+=(--release-fallback); fi
-          python publish_recordings.py --root streams --report upload-report.json --budget 1800 "${args[@]}"
+          python run_upload.py --root streams --report upload-report.json --budget 7200 "${args[@]}"
       - name: Save small diagnostics and verified upload receipts
         if: always()
         uses: actions/upload-artifact@v4
@@ -194,7 +196,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.chain == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 260
+    timeout-minutes: 140
     permissions:
       contents: read
       actions: write

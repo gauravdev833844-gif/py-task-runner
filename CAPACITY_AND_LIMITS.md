@@ -1,15 +1,9 @@
-# Capacity and limits — v2
+# Capacity and limits
 
-One account has five repositories and five channels; three accounts together have fifteen. Account-wide quotas include overlapping recording, controller and preparation jobs. More repositories do not increase an account quota. Changing accounts or IPs is not a quota or suspension workaround.
+Three-hour recording windows start every two hours, leaving a shared two-hour upload budget within each six-hour GitHub job. The default nine-hour plan records up to twelve hours per continuously live channel (including duplicate footage); an eight-hour plan records eleven hours. At 2 Mbit/s, nine-hour monitoring can therefore produce about 10.8 GB per continuously live channel, 54 GB for five channels, or 162 GB for fifteen. These are projections, not tested capacity.
 
-At 2 Mbit/s total bitrate, five hours is about 4.5 GB per channel. Five channels produce 22.5 GB; fifteen produce 67.5 GB, before overlap. Splitting does not compress that data.
+Google Drive storage allowance is not an upload-speed promise. Drive API limits depend on the account and workload. The same Drive account aggregates uploads from all repositories; verify quota and a real upload after OAuth connection. The Google Workspace limits page documents 750 GB/user/day and a 5 TB maximum file size; do not assume this verifies a consumer Gemini/Jio plan. Source: https://developers.google.com/workspace/drive/api/guides/limits .
 
-For a continuously live source, the two windows in the 9-hour plan record 10 hours in total (two 5-hour windows, with one hour of overlap). At 2 Mbit/s, five continuous channels can therefore generate about 45 GB, or fifteen about 135 GB. An 8-hour plan records 9 hours per continuously live channel. These are arithmetic projections, not measured workload tests.
+GitHub-hosted job limits and account-wide concurrency remain in force. More repositories/accounts are not a quota or suspension workaround. Continuous media archiving must be allowed by the runtime/provider terms; setup does not guarantee account safety or unlimited free capacity.
 
-Five channels can have ten recording jobs during overlap, plus controller/preparation jobs. GitHub job concurrency limits are account-wide; hosted jobs have a six-hour execution ceiling. The workflow reserves time for cleanup and one shared 30-minute upload deadline, but queues, network errors and lost child dispatches can still create gaps.
-
-The workflow prints real disk availability. It does not promise 30 GB freed by deleting bundled tools. A low-disk reserve stops recording and reports failure; it cannot create missing disk or recover future footage. Source chunks are retained when concatenation would require too much free space.
-
-Gofile has its own traffic, retention, account/IP and abuse controls. Small successful uploads are not evidence of five simultaneous multi-GB uploads. GitHub Release assets must each be smaller than 2 GiB; the helper uses a conservative 2,000,000,000-byte cap. Release assets follow repository visibility. Neither route promises permanent free video storage.
-
-Use GitHub-hosted Actions for bounded development/testing in accordance with its terms; sustained recording needs an allowed runtime. This package does not supply free hosting, remove restrictions or establish that all fifteen channels will work.
+Source files are kept on the runner. If all destinations fail and the hosted runner is removed, local-only media is not a durable backup. Drive copy, Gofile and optional Release fallback share one deadline; backups may still fail. Release assets must be under 2 GiB; adaptive splitting verifies each part against a conservative 2,000,000,000-byte cap. Public repository Release assets are public.

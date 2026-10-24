@@ -1,100 +1,64 @@
-# YouTube recorder — reliability update v2
+# Manual YouTube recorder with Drive-first uploads
 
-One repository records one channel. Your intended mapping is **3 accounts × 5 repositories**, five streamers per account. This package does not create accounts, rotate IPs, lift quotas, or guarantee that a hosting provider permits the workload.
+One repository records one channel. The connected account has five repositories; the other two accounts are not accessible from this session. Setup is manual-start only. No overnight recording or Telegram message is started by installation.
 
-This is an improved code package, **not evidence that five repositories have completed an overnight session**. No changes to `main`, no paid services, no Telegram messages, and no overnight production runs were made to prepare this version.
+## Upload order
 
-## What changed
+1. **Google Drive**, when private `RCLONE_CONFIG` is configured. Copy uses rclone and verifies remote byte size and MD5. Drive files remain private; the uploader does not create public sharing permissions.
+2. **Gofile** if Drive is absent or fails. Uses the standard upload endpoint; no server/IP rotation. Verifies provider byte size and MD5 acknowledgement.
+3. **GitHub Release backup**, enabled by default for failed Gofile uploads. Public-repo Release assets are public. Adaptive splitting checks every part is below 2,000,000,000 bytes. Set `release_backup: false` to disable it.
 
-- SIGINT-first shutdown gives yt-dlp time to close its current fragment. A disk reserve stops capture gracefully and reports it as incomplete instead of silently filling the disk.
-- Source chunks are retained if there is insufficient room to concatenate a second full video. Small/recovered recordings are included in upload discovery and probed for video content instead of being discarded just because they are smaller than 1 MB or named `short_exit`.
-- Upload has one shared 30-minute deadline across all files, attempts, checksums and backup operations. Gofile uses its standard upload endpoint, at most two attempts capped at 600 seconds each (also limited by the remaining shared budget), and reuses the same guest account/folder during a shift. Optional `GOFILE_TOKEN` lets you supply your own account token.
-- A 600-second timeout is not an upload-speed guarantee. Two fully timed-out attempts use about 20 minutes of the shared 30-minute budget, leaving at most about 10 minutes for backup before other overhead. Faster failure can leave more time; multi-GB backup completion is not guaranteed.
-- Gofile acknowledgement must contain matching byte size and MD5 plus a valid sharing link. This is provider-acknowledged verification; automated download/readback has not been tested.
-- **Optional GitHub Release backup** splits adaptively and checks the actual byte size of every part: strictly below 2,000,000,000 bytes, safely under GitHub's 2 GiB ceiling. Fixed 90-minute durations are not treated as a size guarantee. Splitting copies compressed streams; it does not reduce their total size.
-- Partial upload receipts are checkpointed. Source files are retained locally after successful or failed uploads. **A GitHub-hosted runner deletes local media when the job is removed**: unuploaded media is not a durable backup.
-- Recorder errors cannot become a successful workflow just because upload succeeded. Missing video and failed publication fail the final status. Telegram notifications are optional, report failures, and split long messages into bounded chunks.
-- Fixed per-window deadlines stop delayed/duplicate workflows from extending a window indefinitely. Session/index concurrency lets adjacent windows overlap while serializing duplicates.
+A shared **two-hour upload budget** applies across all files and destinations. A Drive copy attempt may use up to 90 minutes, leaving time for fallback. With Release backup enabled, Gofile gets one attempt of up to 10 minutes and retains a minimum 10-minute backup reserve. Upload speed/completion is not guaranteed.
 
-## Files to put in each repository
+## Manual timing
 
-Upload these root files and preserve their names:
+Default `total_hours` is **9**, maximum 9. Select **8** if desired; use **0.1** for a six-minute bounded test on a channel actually live. Leave internal continuation fields blank/zero.
 
-1. `recorder.py`
-2. `shift_plan.py`
-3. `chain_shift.py`
-4. `publish_recordings.py`
-5. `notify_telegram.py`
-6. `channels.json`
-7. `.github/workflows/record.yml` (the `.github` folder must be at the repository root)
+To reserve more upload time, recording windows are now **3 hours**, starting every **2 hours**, with one-hour overlap. For a nine-hour session:
 
-The ZIP also includes tests, this guide, pinned dependencies, a bounded probe and validation evidence. `channel-configs/` contains the five previously supplied channel configurations. Copy the appropriate file to root `channels.json`. For any other channel use:
+| Shift | Start after manual run | Recording ends after manual run |
+| --- | --- | --- |
+| 1 | 0 h | 3 h |
+| 2 (automatic) | 2 h | 5 h |
+| 3 (automatic) | 4 h | 7 h |
+| 4 (automatic) | 6 h | 9 h |
 
-```json
-[{"handle":"@YOUR_CHANNEL","id":""}]
-```
+For eight hours, the fourth window stops at hour eight. Each prior upload job runs independently while later recorders continue. Upload may continue after the monitoring deadline. The monitoring deadline is a hard stop even if a live stream is still running. Queues/authentication/network problems can cause gaps despite planned overlap.
 
-If changing a handle, **clear the old `id`** or supply that channel's matching UC ID. Do not leave another YouTuber's ID in place.
-
-## Secrets
+## Required private secrets
 
 Repository → Settings → Secrets and variables → Actions:
 
-- Required: `YT_COOKIES`, the complete Netscape-format cookie-file contents. Keep an existing working binding. The uploaded cookie file and an older working GitHub secret were previously found to differ; success with the old binding does not validate the uploaded file.
-- Optional notifications: `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Generate a fresh token if the one you pasted elsewhere is active; this package contains no credentials.
-- Optional upload account: `GOFILE_TOKEN`. Optionally put `GOFILE_FOLDER_ID` in repository **Variables**. Neither is needed for an anonymous upload; the first successful anonymous response supplies a guest token/folder reused in that shift.
+- `YT_COOKIES`: complete Netscape cookie-file contents. Existing working bindings are kept. The uploaded file differs from the older working GitHub binding; historical live tests validate the existing binding only.
+- `RCLONE_CONFIG`: complete rclone configuration for a remote named **drive** linked to your chosen Google account. A desktop Google Drive app login is not this authorization.
+- Optional `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` for text notifications; no Telegram message was sent during setup.
+- Optional `GOFILE_TOKEN`; optional repository variable `GOFILE_FOLDER_ID`. Anonymous uploads do not require them.
 
-Do not commit cookie files, `.env` files, private provider responses or bot tokens. `.gitignore` protects common filenames but cannot prevent arbitrary renamed secrets.
+The GitHub integration receives **HTTP 403 on the Secrets public-key API**, so it can install code but cannot save the supplied cookie file or Google credentials as repository secrets. Enter missing values in GitHub’s secret fields, never in chat/source files.
 
-## Test and schedule
+## One-time Windows Drive connection
 
-First use a **single repository**, Actions → YouTube Live Recorder → Run workflow:
+1. Download the Windows AMD64 ZIP from https://rclone.org/downloads/ and extract it. No card is required for rclone.
+2. Open PowerShell in the extracted folder and run `.\rclone.exe config`.
+3. Choose **New remote**, name it **drive**, select **Google Drive** as storage. Leave client ID/secret blank to use rclone’s built-in client.
+4. Choose scope **Access to files created by rclone only (`drive.file`)**. Existing unrelated Drive files remain outside this scope. Leave service-account file blank; decline advanced settings; accept browser login.
+5. In the browser choose the Google account with your storage, authorize, then return to rclone. Select no shared/team Drive unless you specifically use one; save the remote and quit.
+6. Run `.\rclone.exe about drive:` to check the account’s reported capacity. This does not establish upload speed.
+7. Run `.\rclone.exe config show drive | Set-Clipboard` to copy this remote’s config privately to your clipboard. Paste directly into GitHub secret **RCLONE_CONFIG**, starting with py-task-runner. Do not paste the output/config into chat.
+8. Use the same config in the other four connected repos after a real Drive test succeeds. All repositories can use one Drive account, with separate repository/run folders; its quota is shared. A second Google account is optional and needs its own separate authorization. Do not use account rotation to evade limits.
 
-- `total_hours`: **0.1** for a six-minute bounded detection/capture/upload test. Pick a channel actually live for this test. The named target streamers may be offline.
-- `release_backup`: leave false unless you explicitly want failed Gofile uploads copied to GitHub Releases. **Release assets follow repository visibility; public-repo assets are public.**
-- Leave `session_start`/`session_id` empty and `shift_index` at zero.
+## Check setup before recording
 
-Review actual media, the run Summary, and `upload-report.json`. A running instance or accepted child dispatch is not capture success. A session with no live video reports no confirmed recording instead of a misleading success.
+Actions → **Check recorder setup** → Run workflow. It reports presence/format only; it does not print cookies/tokens or claim authentication success. Missing secrets make this check fail visibly.
 
-Monitoring starts relative to **your manual run**, with no fixed evening or midnight schedule. Set `total_hours` to **8 or 9**; default and maximum are **9 hours**. The short `0.1`-hour test is still supported. Exactly two windows cover either normal duration:
+Then run one **0.1-hour** real test. Google Drive OAuth, the claimed storage allowance and actual Drive upload remain unverified until that connection/test. Pixeldrain is not enabled because no API key is available.
 
-| Window | Start after manual start | End with 8 hours selected | End with 9 hours selected |
-| --- | --- | --- | --- |
-| Shift 1 | 0 h | 5 h | 5 h |
-| Shift 2 (automatic) | 4 h | 8 h | 9 h |
+## Reliability and limits
 
-Both have **one hour of planned overlap**. Shift 2 is dispatched automatically while Shift 1 is still recording. No third shift is scheduled. The controller has a 260-minute ceiling to allow its four-hour wait plus dispatch overhead.
+SIGINT-first shutdown preserves fragments. Low disk is reported as incomplete recording. Recovered/short chunks are probed rather than discarded merely by name or size. Receipts are checkpointed and source files retained locally. If every destination fails and a hosted runner is deleted, local-only media can still be lost. This is not an upload-while-recording implementation.
 
-Examples for a 9-hour session (IST):
+GitHub-hosted jobs have a six-hour ceiling and account-wide quotas. The workflow reserves three recording hours and two upload hours plus setup/cleanup margin. Provider terms and free-plan suitability remain separate from code correctness; do not treat more repositories/accounts as extra allowed quota or a suspension workaround.
 
-| Manual start | Automatic Shift 2 start | Monitoring ends next morning |
-| --- | --- | --- |
-| 19:00 | 23:00 | 04:00 |
-| 20:30 | 00:30 | 05:30 |
-| 22:00 | 02:00 | 07:00 |
-| 00:00 | 04:00 | 09:00 |
+Google Drive space is not unlimited upload throughput. Actual account quota must be checked after OAuth. See https://developers.google.com/workspace/drive/api/guides/limits and https://rclone.org/drive/ .
 
-For an 8-hour session, monitoring ends one hour earlier. Runner startup/queue delays can shift actual timing; these are planned relative times.
-
-This is **planned coverage**, not guaranteed source continuity. Runner queues, suspension, expiring cookies, YouTube restrictions, network faults and upload failures can cause gaps. Upload occurs after the current recording window; this version is not an upload-while-recording service and is not sized for Northflank's 256 MB / 1 GB free instance.
-
-Each five-channel account normally has 5 recording jobs; during overlap it can have 10, plus controller/preparation jobs. Limits apply to the entire account, not separately to every repository. Duplicate recordings increase traffic/storage.
-
-## Hosting and cost limits
-
-GitHub-hosted Actions is for developing/testing applications and has account/job/storage limits. Do not interpret these scripts as permission to operate a daily multi-account video storage service on GitHub-hosted runners. Review [Actions terms](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#actions), [account terms](https://docs.github.com/en/site-policy/github-terms/github-terms-of-service#b-account-terms), and [limits](https://docs.github.com/en/actions/reference/limits). For sustained recording use a runtime you control and a provider that permits the workload; this package does not supply that runtime or free unlimited capacity.
-
-Five recordings of 5 GB need about 25 GB across their runners; fifteen need about 75 GB, before overlap. There is no promise of 30 GB free disk after deleting bundled tools. Actual free disk is printed. Compression is not performed. Gofile sharing has its own account/IP, retention and traffic policies. Release storage is distinct from Actions artifact billing, but [each Release asset must be under 2 GiB](https://docs.github.com/en/repositories/releasing-projects-on-github/about-releases).
-
-Only small JSON diagnostics are saved as Actions artifacts, so this workflow does not quietly duplicate multi-GB video into the artifact allowance. If all upload paths fail, the job fails and local-only recordings can be lost when its runner goes away. No zero-loss guarantee is made.
-
-## Local checks
-
-Requires Python 3.11+, Node 22+, FFmpeg/ffprobe, curl; optional Release backup requires `gh` and repository contents-write permission.
-
-```bash
-python -m pip install -r requirements.txt -r requirements-dev.txt
-python -m unittest -v test_reliability
-```
-
-See `VALIDATION.md` for executed checks and untested scope.
+See VALIDATION.md: 30 local/GitHub tests, real small draft Release upload/download/checksum and earlier six-minute Gofile test passed. Real Google Drive access, full overnight handovers, five simultaneous channels and multi-GB uploads remain unverified.
