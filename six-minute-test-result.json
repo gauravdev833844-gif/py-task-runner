@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "channel": "@SkyNews",
+  "monitor_hours": 0.1,
+  "scope": "One channel, existing GitHub cookie binding; not uploaded-cookie, multi-GB or overnight validation",
+  "gofile_per_attempt_cap_seconds": 600,
+  "validation_upload_budget_seconds": 180,
+  "telegram_invoked": false,
+  "release_backup_enabled": false,
+  "recorder_exit_code": 0,
+  "duration_seconds": 344.985422,
+  "bytes": 140166784,
+  "full_video_audio_decode": true,
+  "width": 1280,
+  "height": 720,
+  "upload_seconds": 3.8,
+  "all_uploaded": true,
+  "elapsed_seconds": 387.62
+}

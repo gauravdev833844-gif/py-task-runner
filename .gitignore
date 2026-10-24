@@ -1,0 +1,7 @@
+cookies.txt
+*cookies*.txt
+.env
+.env.*
+streams/
+upload-report.json
+__pycache__/
