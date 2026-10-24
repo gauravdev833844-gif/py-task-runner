@@ -136,7 +136,7 @@ class Publisher:
 
     def gofile(self, path, metadata):
         for attempt in range(2):
-            seconds = min(300, self.remaining())
+            seconds = min(600, self.remaining())
             config = ''
             if self.token:
                 if any(c in self.token for c in '\r\n"\\'):

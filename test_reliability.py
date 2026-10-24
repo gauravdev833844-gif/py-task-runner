@@ -78,6 +78,31 @@ class ScheduleTests(unittest.TestCase):
 
 
 class UploadTests(unittest.TestCase):
+    def test_gofile_attempt_allows_ten_minutes(self):
+        with tempfile.TemporaryDirectory() as d, patch('publish_recordings.time.monotonic', return_value=1000):
+            root = Path(d); source = root/'capture.ts'; source.write_bytes(b'fixture')
+            meta = fingerprints(source)
+            response = {'status': 'ok', 'data': {'size': meta['bytes'], 'md5': meta['md5'],
+                                                'downloadPage': 'https://gofile.io/d/test'}}
+            pub = Publisher(root, root/'report.json', 1800)
+            with patch('publish_recordings.subprocess.run', return_value=subprocess.CompletedProcess([], 0, json.dumps(response), '')) as run:
+                pub.gofile(source, meta)
+            args = run.call_args.args[0]
+            self.assertEqual(float(args[args.index('--max-time') + 1]), 600)
+            self.assertEqual(run.call_args.kwargs['timeout'], 602)
+
+    def test_gofile_attempt_still_obeys_remaining_global_budget(self):
+        with tempfile.TemporaryDirectory() as d, patch('publish_recordings.time.monotonic', return_value=1000):
+            root = Path(d); source = root/'capture.ts'; source.write_bytes(b'fixture')
+            meta = fingerprints(source)
+            response = {'status': 'ok', 'data': {'size': meta['bytes'], 'md5': meta['md5'],
+                                                'downloadPage': 'https://gofile.io/d/test'}}
+            pub = Publisher(root, root/'report.json', 37)
+            with patch('publish_recordings.subprocess.run', return_value=subprocess.CompletedProcess([], 0, json.dumps(response), '')) as run:
+                pub.gofile(source, meta)
+            args = run.call_args.args[0]
+            self.assertEqual(float(args[args.index('--max-time') + 1]), 37)
+
     def test_checksum_mismatch_is_failure(self):
         metadata = {'bytes': 10, 'md5': 'abcd'}
         response = {'status': 'ok', 'data': {'size': 10, 'md5': 'wrong', 'downloadPage': 'https://gofile.io/d/test'}}

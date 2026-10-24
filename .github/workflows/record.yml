@@ -1,4 +1,4 @@
-name: Bounded recorder schedule validation
+name: Bounded six-minute live and upload validation
 on:
   workflow_dispatch:
 permissions:
@@ -6,7 +6,7 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,7 +23,20 @@ jobs:
             sudo apt-get install -y ffmpeg
           fi
           python -m pip install -q -r requirements.txt -r requirements-dev.txt
-      - name: Run regression and generated-media tests
+      - name: Regression and generated-media tests
         env:
           RECORD_WORKFLOW_PATH: validation/production-record.yml
         run: python -m unittest -v test_reliability
+      - name: Six-minute capture, complete decode and bounded Gofile upload
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+          GOFILE_TOKEN: ${{ secrets.GOFILE_TOKEN }}
+          GOFILE_FOLDER_ID: ${{ vars.GOFILE_FOLDER_ID }}
+        run: python validate_six_minutes.py
+      - name: Save small sanitized reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: six-minute-live-upload-validation
+          path: six-minute-validation/*.json
+          retention-days: 2
