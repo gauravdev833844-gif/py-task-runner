@@ -1,14 +1,36 @@
 {
   "local_tests": {
-    "passed": 23,
+    "passed": 25,
     "failed": 0
   },
-  "github_schedule_tests": {
-    "passed": 23,
+  "github_validation_tests": {
+    "passed": 25,
     "failed": 0,
-    "url": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40098046141",
-    "source_commit": "df032b7360b9eeba1c244238bacdef13cddb095c"
+    "url": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40099263317",
+    "source_commit": "04ec566105150fb36713e2304a38e91eb827716a"
   },
+  "six_minute_record_decode_upload": {
+    "status": "PASS",
+    "channel": "@SkyNews",
+    "monitor_hours": 0.1,
+    "scope": "One channel, existing GitHub cookie binding; not uploaded-cookie, multi-GB or overnight validation",
+    "gofile_per_attempt_cap_seconds": 600,
+    "validation_upload_budget_seconds": 180,
+    "telegram_invoked": false,
+    "release_backup_enabled": false,
+    "recorder_exit_code": 0,
+    "duration_seconds": 344.985422,
+    "bytes": 140166784,
+    "full_video_audio_decode": true,
+    "width": 1280,
+    "height": 720,
+    "upload_seconds": 3.8,
+    "all_uploaded": true,
+    "elapsed_seconds": 387.62,
+    "url": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40099263317"
+  },
+  "gofile_attempt_timeout_seconds": 600,
+  "shared_production_upload_budget_seconds": 1800,
   "schedule": {
     "default_hours": 9,
     "max_hours": 9,
@@ -32,7 +54,7 @@
     "resolution": "1280x720",
     "downloaded_full_av_decode": "PASS"
   },
-  "earlier_unchanged_uploader_small_real_uploads": {
+  "earlier_small_upload_reference": {
     "exit_code": 0,
     "file_count": 2,
     "all_uploaded": true,
