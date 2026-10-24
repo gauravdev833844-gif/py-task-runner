@@ -52,7 +52,7 @@ A Google OAuth app left in **Testing** typically has seven-day refresh-token exp
 4. Choose scope **Access to files created by rclone only (`drive.file`)**. Existing unrelated Drive files remain outside this scope. Leave service-account file blank; decline advanced settings; accept browser login.
 5. In the browser choose the Google account with your storage, authorize, then return to rclone. Select no shared/team Drive unless you specifically use one; save the remote and quit.
 6. Run `.\rclone.exe about drive:` to check the account’s reported capacity. This does not establish upload speed.
-7. Run `.\rclone.exe config show drive | Set-Clipboard` to copy this remote’s config privately to your clipboard. Paste directly into GitHub secret **RCLONE_CONFIG**, starting with py-task-runner. Do not paste the output/config into chat.
+7. Run `.\rclone.exe config show drive | clip` to copy this remote’s config privately to your clipboard. Paste directly into GitHub secret **RCLONE_CONFIG**, starting with py-task-runner. After saving it, use Actions → **Test Google Drive upload** to verify one private generated-file upload/readback, without recording or Telegram messages. Do not paste the output/config into chat.
 8. Use the same config in the other four connected repos after a real Drive test succeeds. All repositories can use one Drive account, with separate repository/run folders; its quota is shared. A second Google account is optional and needs its own separate authorization. Do not use account rotation to evade limits.
 
 ## Check setup before recording
