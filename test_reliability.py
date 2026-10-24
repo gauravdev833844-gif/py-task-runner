@@ -20,64 +20,96 @@ from publish_recordings import Publisher, PublishError, fingerprints, select_med
 
 
 class ScheduleTests(unittest.TestCase):
-    def test_eight_and_nine_hours_need_exactly_two_overlapping_windows(self):
+    def test_eight_and_nine_hours_have_four_overlapping_windows(self):
         for hours in (8, 9):
-            first = plan(0, hours, 0)
-            self.assertTrue(first['chain'])
-            self.assertEqual(first['duration_hours'], 5)
-            self.assertEqual(first['next_at'], 4 * 3600)
-            second = plan(0, hours, first['next_at'], first['next_index'])
-            self.assertEqual(second['window_deadline'], hours * 3600)
-            self.assertEqual(second['duration_hours'], hours - 4)
-            self.assertEqual(first['window_deadline'] - first['next_at'], 3600)
-            self.assertFalse(second['chain'])
+            windows = []
+            index, now = 0, 0
+            while True:
+                result = plan(0, hours, now, index)
+                windows.append((now, result['window_deadline']))
+                if not result['chain']: break
+                index, now = result['next_index'], result['next_at']
+            self.assertEqual([a for a,b in windows], [0,7200,14400,21600])
+            self.assertEqual(windows[-1][1], hours*3600)
+            self.assertTrue(all(a[1]-b[0] == 3600 for a,b in zip(windows,windows[1:])))
+            self.assertTrue(all(b-a <= 10800 for a,b in windows))
 
     def test_any_manual_start_has_same_relative_schedule(self):
         for start in (19*3600, 20*3600+1800, 22*3600, 24*3600):
             first = plan(start, 9, start)
-            self.assertEqual(first['deadline'], start + 9 * 3600)
-            self.assertEqual(first['next_at'], start + 4 * 3600)
-            second = plan(start, 9, first['next_at'], 1)
-            self.assertEqual(second['duration_hours'], 5)
-            self.assertFalse(second['chain'])
+            self.assertEqual(first['deadline'], start+9*3600)
+            self.assertEqual(first['next_at'], start+2*3600)
+            self.assertEqual(plan(start, 9, start+6*3600, 3)['window_deadline'], start+9*3600)
 
     def test_delayed_window_never_extends_its_original_end(self):
-        result = plan(0, 9, 5 * 3600, 1)
-        self.assertEqual(result['duration_hours'], 4)
-        self.assertEqual(result['window_deadline'], 9 * 3600)
+        result = plan(0, 9, 3*3600, 1)
+        self.assertEqual(result['duration_hours'], 2)
+        self.assertEqual(result['window_deadline'], 5*3600)
 
     def test_expired_duplicate_is_skipped(self):
-        result = plan(0, 9, 5 * 3600 + 1, 0)
+        result = plan(0, 9, 3*3600+1, 0)
         self.assertFalse(result['active'])
         self.assertFalse(result['chain'])
 
     def test_session_deadline_truncates_last_window(self):
-        result = plan(0, 8, 4 * 3600, 1)
-        self.assertEqual(result['duration_hours'], 4)
+        result = plan(0, 8, 6*3600, 3)
+        self.assertEqual(result['duration_hours'], 2)
         self.assertFalse(result['chain'])
 
     def test_bad_inputs_rejected(self):
-        for value in [0, -1, 9.1, 18, float('nan'), float('inf')]:
-            with self.assertRaises(ValueError):
-                plan(0, value, 0)
+        for value in [0,-1,9.1,18,float('nan'),float('inf')]:
+            with self.assertRaises(ValueError): plan(0,value,0)
 
     def test_dispatch_retains_backup_choice(self):
-        with patch.dict(os.environ, {'WORKFLOW_REF': 'candidate', 'TOTAL_HOURS': '9',
-                                     'SESSION_START': '1000', 'SESSION_ID': '123',
-                                     'NEXT_INDEX': '1', 'RELEASE_BACKUP': 'true'}):
+        with patch.dict(os.environ, {'WORKFLOW_REF':'candidate','TOTAL_HOURS':'9',
+                                    'SESSION_START':'1000','SESSION_ID':'123','NEXT_INDEX':'1','RELEASE_BACKUP':'true'}):
             body = dispatch_body()
-        self.assertEqual(body['inputs']['release_backup'], 'true')
-        self.assertEqual(body['inputs']['session_start'], '1000')
-        self.assertEqual(body['inputs']['total_hours'], '9')
-        self.assertEqual(body['inputs']['shift_index'], '1')
+        self.assertEqual(body['inputs']['release_backup'],'true')
+        self.assertEqual(body['inputs']['session_start'],'1000')
+        self.assertEqual(body['inputs']['total_hours'],'9')
 
     def test_short_test_needs_no_second_shift(self):
-        self.assertFalse(plan(0, .1, 0)['chain'])
-        with self.assertRaises(ValueError):
-            plan(0, 9, 8 * 3600, 2)
+        self.assertFalse(plan(0,.1,0)['chain'])
+        with self.assertRaises(ValueError): plan(0,9,8*3600,4)
 
 
 class UploadTests(unittest.TestCase):
+    def test_rclone_copy_and_hash_contract_with_local_backend(self):
+        # Real CLI/file transfer, without claiming Google OAuth/Drive validation.
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); config = root/'rclone.conf'; config.write_text('[drive]\ntype = local\n')
+            source = root/'source.ts'; source.write_bytes(b'owned binary fixture\x00' * 1000)
+            env = {'RCLONE_CONFIG': str(config), 'GDRIVE_REMOTE': 'drive:'+str(root/'remote')}
+            with patch.dict(os.environ, env):
+                pub = Publisher(root, root/'report.json', 1800)
+                receipt = pub.google_drive(source, fingerprints(source))
+            returned = next((root/'remote').rglob('*.ts'))
+            self.assertEqual(returned.read_bytes(), source.read_bytes())
+            self.assertEqual(receipt['verification'], 'remote_size_and_md5')
+            self.assertTrue(source.exists())
+
+    def test_drive_checksum_mismatch_is_not_success(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); config = root/'rclone.conf'; config.write_text('test config')
+            source = root/'fixture.ts'; source.write_bytes(b'fixture')
+            with patch.dict(os.environ, {'RCLONE_CONFIG': str(config)}):
+                pub = Publisher(root, root/'report.json', 1800)
+            results = [subprocess.CompletedProcess([],0,'',''), subprocess.CompletedProcess([],0,json.dumps({'Size':7,'Hashes':{'md5':'wrong'}}),'')]
+            with patch('publish_recordings.subprocess.run', side_effect=results):
+                with self.assertRaises(PublishError): pub.google_drive(source, fingerprints(source))
+
+    def test_drive_failure_falls_back_without_deleting_source(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d); source = root/'fixture.ts'; source.write_bytes(b'fixture')
+            pub = Publisher(root, root/'report.json', 1800); pub.drive_config = 'test-config'
+            with patch('publish_recordings.media_ok',return_value=True), \
+                 patch.object(pub,'google_drive',side_effect=PublishError('drive_failed')), \
+                 patch.object(pub,'gofile',return_value={'provider':'gofile','url':'https://gofile.io/d/test'}):
+                self.assertEqual(pub.run(),0)
+            report = json.loads((root/'report.json').read_text())
+            self.assertTrue(report['files'][0]['drive_attempt_failed'])
+            self.assertTrue(source.exists())
+
     def test_backup_mode_tries_gofile_once(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); source = root/'capture.ts'; source.write_bytes(b'fixture')

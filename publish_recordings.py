@@ -110,14 +110,16 @@ def split_for_release(source, destination, limit=RELEASE_LIMIT, timeout=300):
 
 
 class Publisher:
-    def __init__(self, root, report, budget=1800, release_fallback=False, endpoint=GOFILE_ENDPOINT):
-        if not 10 <= budget <= 1800:
-            raise ValueError('Upload budget must be 10..1800 seconds')
+    def __init__(self, root, report, budget=7200, release_fallback=False, endpoint=GOFILE_ENDPOINT):
+        if not 10 <= budget <= 7200:
+            raise ValueError('Upload budget must be 10..7200 seconds')
         self.root, self.report = Path(root), Path(report)
         self.end = time.monotonic() + budget
         self.release_fallback, self.endpoint = release_fallback, endpoint
         self.token = os.environ.get('GOFILE_TOKEN', '')
         self.folder = os.environ.get('GOFILE_FOLDER_ID', '')
+        self.drive_config = os.environ.get('RCLONE_CONFIG', '')
+        self.drive_prefix = os.environ.get('GDRIVE_REMOTE', 'drive:YouTubeRecordings')
         self.results = []
 
     def remaining(self):
@@ -169,6 +171,39 @@ class Publisher:
                 time.sleep(5)
         raise PublishError('gofile_upload_failed')
 
+    def google_drive(self, source, metadata):
+        if not self.drive_config or not Path(self.drive_config).is_file():
+            raise PublishError('google_drive_not_configured')
+        if not shutil.which('rclone'):
+            raise PublishError('rclone_missing')
+        seconds = min(5400, self.remaining() - 600)
+        if seconds < 1:
+            raise PublishError('drive_budget_reserved_for_fallback')
+        owner_repo = os.environ.get('GITHUB_REPOSITORY', 'local').replace('/', '_')
+        run = os.environ.get('GITHUB_RUN_ID', 'local')
+        name = re.sub(r'[^A-Za-z0-9_.-]+', '_', source.name)
+        remote = self.drive_prefix.rstrip('/') + '/' + owner_repo + '/' + run + '/' + metadata['sha256'][:20] + '-' + name
+        base = ['rclone', '--config', self.drive_config]
+        copied = subprocess.run(base + ['copyto', str(source), remote, '--checksum',
+                                        '--retries', '2', '--low-level-retries', '3',
+                                        '--contimeout', '15s', '--timeout', '60s',
+                                        '--drive-chunk-size', '32M', '--transfers', '1', '--checkers', '1'],
+                                capture_output=True, text=True, timeout=seconds)
+        if copied.returncode:
+            raise PublishError('google_drive_copy_failed')
+        info = subprocess.run(base + ['lsjson', remote, '--stat', '--hash'],
+                              capture_output=True, text=True, timeout=min(30, self.remaining()))
+        if info.returncode:
+            raise PublishError('google_drive_metadata_failed')
+        details = json.loads(info.stdout)
+        hashes = {k.lower(): v.lower() for k, v in details.get('Hashes', {}).items()}
+        if details.get('Size') != metadata['bytes'] or hashes.get('md5') != metadata['md5']:
+            raise PublishError('google_drive_checksum_or_size_mismatch')
+        file_id = details.get('ID', '')
+        link = 'https://drive.google.com/file/d/' + file_id + '/view' if re.fullmatch(r'[A-Za-z0-9_-]+', file_id) else remote
+        return {'provider': 'google_drive', 'url': link, 'remote_path': remote,
+                'verification': 'remote_size_and_md5', 'sharing': 'private; no sharing permissions changed'}
+
     def release(self, source, metadata, work):
         repo = os.environ.get('GITHUB_REPOSITORY', '')
         run = os.environ.get('GITHUB_RUN_ID', '')
@@ -197,13 +232,14 @@ class Publisher:
             asset = work / f'{metadata["sha256"][:20]}-part-{index:05d}.ts'
             os.link(part, asset)
             gh('release', 'upload', tag, str(asset), '--repo', repo, '--clobber')
-            details = json.loads(gh('api', f'repos/{repo}/releases/tags/{quote(tag, safe="")}'))
+            details = json.loads(gh('release', 'view', tag, '--repo', repo, '--json', 'assets'))
             info = next((a for a in details.get('assets', []) if a.get('name') == asset.name), {})
-            if info.get('size') != asset.stat().st_size or not info.get('browser_download_url'):
+            link = info.get('browser_download_url') or info.get('url')
+            if info.get('size') != asset.stat().st_size or not link:
                 raise PublishError('release_asset_size_verification_failed')
             if info.get('digest') and info['digest'] != 'sha256:' + fingerprints(asset, self.end)['sha256']:
                 raise PublishError('release_asset_digest_verification_failed')
-            uploaded.append({'provider': 'github_release', 'url': info['browser_download_url'],
+            uploaded.append({'provider': 'github_release', 'url': link,
                              'bytes': asset.stat().st_size, 'verification': 'asset_size_and_digest_if_available'})
             # Checkpoint successful parts even if a later upload fails.
             self.results[-1]['receipts'] = list(uploaded)
@@ -229,12 +265,20 @@ class Publisher:
                     work = Path(directory)
                     staged = work / (metadata['sha256'][:20] + '.ts')
                     os.link(path, staged)
-                    try:
-                        receipts = [self.gofile(staged, metadata)]
-                    except (PublishError, subprocess.TimeoutExpired):
-                        if not self.release_fallback:
-                            raise PublishError('gofile_failed_source_preserved') from None
-                        receipts = self.release(path, metadata, work)
+                    receipts = None
+                    if self.drive_config:
+                        try:
+                            receipts = [self.google_drive(path, metadata)]
+                        except (PublishError, OSError, ValueError, subprocess.TimeoutExpired):
+                            record['drive_attempt_failed'] = True
+                            self.save()
+                    if receipts is None:
+                        try:
+                            receipts = [self.gofile(staged, metadata)]
+                        except (PublishError, subprocess.TimeoutExpired):
+                            if not self.release_fallback:
+                                raise PublishError('gofile_failed_source_preserved') from None
+                            receipts = self.release(path, metadata, work)
                     record.update(uploaded=True, receipts=receipts)
                     self.save()
                 # Keep source on disk even after upload; lifecycle cleanup is explicit.
@@ -252,7 +296,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--root', default='streams')
     parser.add_argument('--report', default='upload-report.json')
-    parser.add_argument('--budget', type=int, default=1800)
+    parser.add_argument('--budget', type=int, default=7200)
     parser.add_argument('--release-fallback', action='store_true')
     args = parser.parse_args()
     raise SystemExit(Publisher(args.root, args.report, args.budget, args.release_fallback).run())
