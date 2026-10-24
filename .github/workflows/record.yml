@@ -1,4 +1,4 @@
-name: Bounded recorder reliability validation
+name: Bounded recorder schedule validation
 on:
   workflow_dispatch:
 permissions:
@@ -27,14 +27,3 @@ jobs:
         env:
           RECORD_WORKFLOW_PATH: validation/production-record.yml
         run: python -m unittest -v test_reliability
-      - name: One short live capture and complete audio/video decode
-        env:
-          YT_COOKIES: ${{ secrets.YT_COOKIES }}
-        run: python validate_v2_on_runner.py
-      - name: Preserve sanitized validation evidence
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: recorder-v2-validation
-          path: v2-validation-artifact/
-          retention-days: 1

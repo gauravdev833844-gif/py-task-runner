@@ -20,50 +20,61 @@ from publish_recordings import Publisher, PublishError, fingerprints, select_med
 
 
 class ScheduleTests(unittest.TestCase):
-    def test_eighteen_hours_have_no_planned_gap(self):
-        windows = []
-        index, now = 0, 0
-        while True:
-            result = plan(0, 18, now, index)
-            windows.append((now, result['window_deadline']))
-            if not result['chain']:
-                break
-            index, now = result['next_index'], result['next_at']
-        self.assertEqual(windows[-1][1], 18 * 3600)
-        self.assertEqual(len(windows), 6)
-        self.assertTrue(all(a[1] - b[0] == 2 * 3600 for a, b in zip(windows, windows[1:])))
+    def test_eight_and_nine_hours_need_exactly_two_overlapping_windows(self):
+        for hours in (8, 9):
+            first = plan(0, hours, 0)
+            self.assertTrue(first['chain'])
+            self.assertEqual(first['duration_hours'], 5)
+            self.assertEqual(first['next_at'], 4 * 3600)
+            second = plan(0, hours, first['next_at'], first['next_index'])
+            self.assertEqual(second['window_deadline'], hours * 3600)
+            self.assertEqual(second['duration_hours'], hours - 4)
+            self.assertEqual(first['window_deadline'] - first['next_at'], 3600)
+            self.assertFalse(second['chain'])
 
-    def test_five_pm_start_covers_next_ten_am(self):
-        start = 17 * 3600
-        self.assertGreaterEqual(plan(start, 18, start)['deadline'], (24 + 10) * 3600)
+    def test_any_manual_start_has_same_relative_schedule(self):
+        for start in (19*3600, 20*3600+1800, 22*3600, 24*3600):
+            first = plan(start, 9, start)
+            self.assertEqual(first['deadline'], start + 9 * 3600)
+            self.assertEqual(first['next_at'], start + 4 * 3600)
+            second = plan(start, 9, first['next_at'], 1)
+            self.assertEqual(second['duration_hours'], 5)
+            self.assertFalse(second['chain'])
 
     def test_delayed_window_never_extends_its_original_end(self):
-        result = plan(0, 18, 4 * 3600, 1)
+        result = plan(0, 9, 5 * 3600, 1)
         self.assertEqual(result['duration_hours'], 4)
-        self.assertEqual(result['window_deadline'], 8 * 3600)
+        self.assertEqual(result['window_deadline'], 9 * 3600)
 
     def test_expired_duplicate_is_skipped(self):
-        result = plan(0, 18, 8 * 3600 + 1, 1)
+        result = plan(0, 9, 5 * 3600 + 1, 0)
         self.assertFalse(result['active'])
         self.assertFalse(result['chain'])
 
     def test_session_deadline_truncates_last_window(self):
-        result = plan(0, 18, 15 * 3600, 5)
-        self.assertEqual(result['duration_hours'], 3)
+        result = plan(0, 8, 4 * 3600, 1)
+        self.assertEqual(result['duration_hours'], 4)
         self.assertFalse(result['chain'])
 
     def test_bad_inputs_rejected(self):
-        for value in [0, -1, 25, float('nan'), float('inf')]:
+        for value in [0, -1, 9.1, 18, float('nan'), float('inf')]:
             with self.assertRaises(ValueError):
                 plan(0, value, 0)
 
     def test_dispatch_retains_backup_choice(self):
-        with patch.dict(os.environ, {'WORKFLOW_REF': 'candidate', 'TOTAL_HOURS': '18',
+        with patch.dict(os.environ, {'WORKFLOW_REF': 'candidate', 'TOTAL_HOURS': '9',
                                      'SESSION_START': '1000', 'SESSION_ID': '123',
-                                     'NEXT_INDEX': '2', 'RELEASE_BACKUP': 'true'}):
+                                     'NEXT_INDEX': '1', 'RELEASE_BACKUP': 'true'}):
             body = dispatch_body()
         self.assertEqual(body['inputs']['release_backup'], 'true')
         self.assertEqual(body['inputs']['session_start'], '1000')
+        self.assertEqual(body['inputs']['total_hours'], '9')
+        self.assertEqual(body['inputs']['shift_index'], '1')
+
+    def test_short_test_needs_no_second_shift(self):
+        self.assertFalse(plan(0, .1, 0)['chain'])
+        with self.assertRaises(ValueError):
+            plan(0, 9, 8 * 3600, 2)
 
 
 class UploadTests(unittest.TestCase):
