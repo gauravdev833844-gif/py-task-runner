@@ -4,7 +4,7 @@ One account has five repositories and five channels; three accounts together hav
 
 At 2 Mbit/s total bitrate, five hours is about 4.5 GB per channel. Five channels produce 22.5 GB; fifteen produce 67.5 GB, before overlap. Splitting does not compress that data.
 
-For a continuously live source, the six windows in the 18-hour plan record 28 hours in total (five 5-hour windows and one 3-hour window). Thus fifteen continuous sources at 2 Mbit/s can generate about 378 GB, compared with 243 GB without overlap. These are arithmetic projections, not measured workload tests.
+For a continuously live source, the two windows in the 9-hour plan record 10 hours in total (two 5-hour windows, with one hour of overlap). At 2 Mbit/s, five continuous channels can therefore generate about 45 GB, or fifteen about 135 GB. An 8-hour plan records 9 hours per continuously live channel. These are arithmetic projections, not measured workload tests.
 
 Five channels can have ten recording jobs during overlap, plus controller/preparation jobs. GitHub job concurrency limits are account-wide; hosted jobs have a six-hour execution ceiling. The workflow reserves time for cleanup and one shared 30-minute upload deadline, but queues, network errors and lost child dispatches can still create gaps.
 

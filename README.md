@@ -55,16 +55,25 @@ First use a **single repository**, Actions → YouTube Live Recorder → Run wor
 
 Review actual media, the run Summary, and `upload-report.json`. A running instance or accepted child dispatch is not capture success. A session with no live video reports no confirmed recording instead of a misleading success.
 
-The code supports monitoring durations up to 24 hours. Default **18 hours** covers **17:00 IST → 11:00 IST next day**, including your stated offline period until 10:00. Five-hour windows begin every three hours, with two hours of planned overlap. For an 18-hour session the relative windows are:
+Monitoring starts relative to **your manual run**, with no fixed evening or midnight schedule. Set `total_hours` to **8 or 9**; default and maximum are **9 hours**. The short `0.1`-hour test is still supported. Exactly two windows cover either normal duration:
 
-| Window | Start after manual start | End after manual start |
+| Window | Start after manual start | End with 8 hours selected | End with 9 hours selected |
+| --- | --- | --- | --- |
+| Shift 1 | 0 h | 5 h | 5 h |
+| Shift 2 (automatic) | 4 h | 8 h | 9 h |
+
+Both have **one hour of planned overlap**. Shift 2 is dispatched automatically while Shift 1 is still recording. No third shift is scheduled. The controller has a 260-minute ceiling to allow its four-hour wait plus dispatch overhead.
+
+Examples for a 9-hour session (IST):
+
+| Manual start | Automatic Shift 2 start | Monitoring ends next morning |
 | --- | --- | --- |
-| 0 | 0 h | 5 h |
-| 1 | 3 h | 8 h |
-| 2 | 6 h | 11 h |
-| 3 | 9 h | 14 h |
-| 4 | 12 h | 17 h |
-| 5 | 15 h | 18 h |
+| 19:00 | 23:00 | 04:00 |
+| 20:30 | 00:30 | 05:30 |
+| 22:00 | 02:00 | 07:00 |
+| 00:00 | 04:00 | 09:00 |
+
+For an 8-hour session, monitoring ends one hour earlier. Runner startup/queue delays can shift actual timing; these are planned relative times.
 
 This is **planned coverage**, not guaranteed source continuity. Runner queues, suspension, expiring cookies, YouTube restrictions, network faults and upload failures can cause gaps. Upload occurs after the current recording window; this version is not an upload-while-recording service and is not sized for Northflank's 256 MB / 1 GB free instance.
 

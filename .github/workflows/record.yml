@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       total_hours:
-        description: 'Monitoring hours from manual start (test with 0.1 first; max 24)'
+        description: 'Hours from your manual start: 8 or 9 (max 9; use 0.1 for a short test)'
         required: true
-        default: 18
+        default: 9
         type: number
       release_backup:
         description: 'Opt-in GitHub Release backup; assets follow repository visibility'
@@ -194,7 +194,7 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.chain == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 260
     permissions:
       contents: read
       actions: write
