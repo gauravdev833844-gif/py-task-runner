@@ -73,7 +73,8 @@ SHORT_EXIT_BACKOFF_SECONDS = 4
 STALL_RETRY_BACKOFF_SECONDS = 4
 CLIENT_SWITCH_DELAY_SECONDS = 5
 
-DOWNLOAD_CLIENTS = ["android", None]
+# Candidate order; use the probe workflow to validate clients on your runner.
+DOWNLOAD_CLIENTS = ["web_safari", None, "android"]
 VALIDATION_CLIENTS = ["android", "web_safari"]
 
 SESSION_ACTIVE = threading.Event()
@@ -197,7 +198,7 @@ def install_dependencies():
     log(f"installing dependencies for {CHANNEL_HANDLE} (cookies={USE_COOKIES})")
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "-q", "-U", "yt-dlp[default,curl-cffi]"],
+            [sys.executable, "-m", "pip", "install", "-q", "yt-dlp[default,curl-cffi]==2026.10.21"],
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -377,8 +378,16 @@ def run_ytdlp_json(url, client):
                         return item
                 return raw["entries"][0]
             return raw
-    except Exception:
-        pass
+        if result.returncode:
+            message = normalize_message(result.stderr)
+            reason = "botcheck" if any(marker in message for marker in BOTCHECK_MARKERS) else (
+                "rate_limited" if any(marker in message for marker in RATE_LIMIT_MARKERS) else (
+                "not_live" if any(marker in message for marker in NOT_LIVE_MARKERS) else "extraction_failed"))
+            log(f"probe_failed | client={client_label(client)} | reason={reason} | exit={result.returncode}")
+    except subprocess.TimeoutExpired:
+        log(f"probe_failed | client={client_label(client)} | reason=timeout")
+    except Exception as exc:
+        log(f"probe_failed | client={client_label(client)} | reason={type(exc).__name__}")
     return None
 
 
@@ -448,7 +457,7 @@ def verify_live_id(video_id, source_kind):
     if result:
         elapsed = time.monotonic() - started
         log(f"detect_live | source={source_kind} | live id={result['id']} | client={client_label(result['client'])} | match={result['match_reason']} | validation={elapsed:.1f}s")
-        return {"id": result["id"], "url": result["url"], "source": source_kind}
+        return {"id": result["id"], "url": result["url"], "source": source_kind, "detected_client": result["client"]}
     return None
 
 
@@ -487,7 +496,7 @@ def probe_fast():
             continue
         video_id = info["id"]
         log(f"detect_live | source=live_endpoint | live id={video_id} | client={client} | match={reason}")
-        return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint"}
+        return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": client}
 
     for video_id in extract_live_badge_ids(home_html)[:2]:
         result = verify_live_id(video_id, "home_live_badge")
@@ -542,15 +551,21 @@ def stop_proc(process):
     try:
         if process.poll() is not None:
             return
-        process.terminate()
-        process.wait(timeout=10)
+        # Let yt-dlp close its active fragment before falling back to termination.
+        process.send_signal(signal.SIGINT)
+        process.wait(timeout=20)
         return
     except Exception:
         try:
-            process.kill()
+            process.terminate()
             process.wait(timeout=5)
+            return
         except Exception:
-            pass
+            try:
+                process.kill()
+                process.wait(timeout=5)
+            except Exception:
+                pass
 
 
 def sigterm_handler(signum, frame):
@@ -685,8 +700,8 @@ def new_session(live):
     active = {
         "live_id": live_id,
         "live_url": f"https://www.youtube.com/watch?v={live_id}",
-        "preferred_client": "android",
-        "client_locked": False,
+        "preferred_client": live.get("detected_client", "web_safari"),
+        "client_locked": True,
         "short_exit_streak": 0,
         "short_exit_seq": 0,
         "session_index": session_index,
@@ -984,6 +999,14 @@ def run_download_attempt(active, session_end, client, live_queue):
         and time.time() < session_end
     )
 
+    # Preserve explicit authentication/rate-limit errors before short-exit handling.
+    if output_state["botcheck"] or output_state["rate_limited"]:
+        active["recording_path"] = None
+        reason = classify_output(output_state)
+        save_active_state(active)
+        log(f"download_blocked | client={client_label(client)} | reason={reason}")
+        return False, reason, replacement_live
+
     if unexpected_short_exit:
         if saved_path and os.path.isfile(saved_path):
             archived = archive_short_exit(active, saved_path)
@@ -1159,8 +1182,7 @@ try:
                 active = new_session(candidate)
             else:
                 active["offline_since"] = None
-                active["cooldown_until"] = 0
-                active["recovery_needed"] = False
+                # Seeing the same live video does not clear a download failure cooldown.
                 save_active_state(active)
 
         if active:
@@ -1185,9 +1207,10 @@ try:
                 }:
                     active["recovery_needed"] = True
                     active["last_failure_reason"] = reason
-                    active["cooldown_until"] = time.time() + FAILURE_COOLDOWN_SECONDS
+                    cooldown = 300 if reason in {"botcheck", "rate_limited"} else FAILURE_COOLDOWN_SECONDS
+                    active["cooldown_until"] = time.time() + cooldown
                     save_active_state(active)
-                    log(f"recovery_cooldown | reason={reason} | waiting={FAILURE_COOLDOWN_SECONDS}s")
+                    log(f"recovery_cooldown | reason={reason} | waiting={cooldown}s")
                     # A downloader/format/network failure does not prove the
                     # stream went offline. Keep the same session alive and
                     # continue recovery attempts; only explicit end signals
@@ -1220,3 +1243,6 @@ if active:
     close_session(active, "session complete")
 
 log("session_complete")
+if not any(os.path.getsize(path) >= MIN_SAVE_BYTES for path in glob.glob(os.path.join(OUT_DIR, "*.ts"))):
+    log("no_recording_saved | monitoring finished without a final recording; this is not capture success")
+    raise SystemExit(2)

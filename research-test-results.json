@@ -1,0 +1,139 @@
+{
+  "gofile_small_batch": {
+    "tested_at_utc": "2026-10-24T08:51:28.206293+00:00",
+    "parallel_uploads": 2,
+    "file_count": 5,
+    "total_bytes": 11235068,
+    "results": [
+      {
+        "test_file": "capacity-test-1.ts",
+        "bytes": 2159556,
+        "http": "200",
+        "curl_exit": 0,
+        "seconds": 0.89,
+        "api_status": "ok",
+        "size_matches": true,
+        "md5_matches": true
+      },
+      {
+        "test_file": "capacity-test-2.ts",
+        "bytes": 2222160,
+        "http": "200",
+        "curl_exit": 0,
+        "seconds": 0.96,
+        "api_status": "ok",
+        "size_matches": true,
+        "md5_matches": true
+      },
+      {
+        "test_file": "capacity-test-3.ts",
+        "bytes": 2297172,
+        "http": "200",
+        "curl_exit": 0,
+        "seconds": 0.71,
+        "api_status": "ok",
+        "size_matches": true,
+        "md5_matches": true
+      },
+      {
+        "test_file": "capacity-test-4.ts",
+        "bytes": 2319732,
+        "http": "200",
+        "curl_exit": 0,
+        "seconds": 1.27,
+        "api_status": "ok",
+        "size_matches": true,
+        "md5_matches": true
+      },
+      {
+        "test_file": "capacity-test-5.ts",
+        "bytes": 2236448,
+        "http": "200",
+        "curl_exit": 0,
+        "seconds": 0.86,
+        "api_status": "ok",
+        "size_matches": true,
+        "md5_matches": true
+      }
+    ],
+    "scope": "Small generated test files only; not multi-GB or 15 concurrent uploads"
+  },
+  "visible_artifact_inventory": [
+    {
+      "repo": "py-task-runner",
+      "active_artifacts": 15,
+      "bytes": 44583554,
+      "largest_artifact_bytes": 14942366
+    },
+    {
+      "repo": "py-task-repo4",
+      "active_artifacts": 2,
+      "bytes": 45147,
+      "largest_artifact_bytes": 44433
+    },
+    {
+      "repo": "py-task-newrepo",
+      "active_artifacts": 2,
+      "bytes": 45040,
+      "largest_artifact_bytes": 44305
+    },
+    {
+      "repo": "py-task-reposit",
+      "active_artifacts": 2,
+      "bytes": 1496,
+      "largest_artifact_bytes": 748
+    },
+    {
+      "repo": "yt-recorder",
+      "active_artifacts": 0,
+      "bytes": 0,
+      "largest_artifact_bytes": 0
+    }
+  ],
+  "streamlink": {
+    "tested_at_utc": "2026-10-24T08:59:30.459988+00:00",
+    "tool": "Streamlink",
+    "version": "8.6.2",
+    "channel": "@SkyNews",
+    "cookies_used": true,
+    "status": "youtube_authentication_or_botcheck",
+    "exit_code": 1
+  },
+  "graceful_shutdown": {
+    "run_url": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40080361118",
+    "results": [
+      {
+        "file": "SkyNews_umLWFz4izTM.ts",
+        "duration": 45.000267,
+        "bytes": 4428904,
+        "complete_audio_video_decode": true
+      }
+    ]
+  },
+  "segmentation": {
+    "source": "Previously verified 20-second FFmpeg-downloader live clip",
+    "source_video_frames": 600,
+    "segment_video_frames": 600,
+    "closed_segments": 4,
+    "source_bytes": 3868664,
+    "segment_total_bytes": 3870732,
+    "same_codec_and_resolution": true,
+    "all_segments_full_av_decode": true,
+    "frame_loss": 0,
+    "network_live_capture_test": false
+  },
+  "compression": {
+    "sample_seconds": 20.0,
+    "sample_bytes": 573994,
+    "video_resolution": [
+      [
+        1280,
+        720
+      ]
+    ],
+    "complete_av_decode_passed": true,
+    "estimated_5h_decimal_MB_at_sample_rate": 516.6,
+    "note": "Re-encoded at 180 kbps video plus 32 kbps audio; not lossless and not a five-hour test",
+    "ssim_against_source": 0.950829
+  }
+}

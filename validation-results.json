@@ -1,0 +1,100 @@
+{
+  "test_date": "2026-10-24",
+  "channel": "@SkyNews",
+  "client_matrix_run": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40076428974",
+  "native_recorder_run": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40076643346",
+  "overlap_runs": [
+    "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40076755191",
+    "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40076795855"
+  ],
+  "cookie_binding_matches_uploaded_file": false,
+  "cookie_binding_check_run": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40076907586",
+  "native_recording_seconds": 54.103911,
+  "overlap_recording_seconds": [
+    109.0366,
+    69.033333
+  ],
+  "confirmed_active_window_overlap_seconds": 87.025122,
+  "full_overnight_12_hour_run_executed": false,
+  "matrix": [
+    {
+      "tested_at_utc": "2026-10-24T08:02:30.263112+00:00",
+      "channel": "@SkyNews",
+      "client": "web_safari",
+      "cookies_used": true,
+      "status": "PASS",
+      "captured_seconds": 20.01,
+      "yt_dlp_version": "2026.10.21",
+      "video_id": "5h2gFN76HJc",
+      "downloader_exit_code": 0
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:04:05.318712+00:00",
+      "channel": "@SkyNews",
+      "client": "ios",
+      "cookies_used": true,
+      "status": "no_matching_media_format",
+      "captured_seconds": 0,
+      "yt_dlp_version": "2026.10.21"
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:05:36.648135+00:00",
+      "channel": "@SkyNews",
+      "client": "android",
+      "cookies_used": true,
+      "status": "no_matching_media_format",
+      "captured_seconds": 0,
+      "yt_dlp_version": "2026.10.21"
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:06:54.300091+00:00",
+      "channel": "@SkyNews",
+      "client": "default",
+      "cookies_used": true,
+      "status": "PASS",
+      "captured_seconds": 20.0,
+      "yt_dlp_version": "2026.10.21",
+      "video_id": "5h2gFN76HJc",
+      "downloader_exit_code": 0
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:03:23.979148+00:00",
+      "channel": "@SkyNews",
+      "client": "web_safari",
+      "cookies_used": false,
+      "status": "youtube_bot_verification",
+      "captured_seconds": 0,
+      "yt_dlp_version": "2026.10.21"
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:04:51.121885+00:00",
+      "channel": "@SkyNews",
+      "client": "ios",
+      "cookies_used": false,
+      "status": "youtube_bot_verification",
+      "captured_seconds": 0,
+      "yt_dlp_version": "2026.10.21"
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:06:13.533473+00:00",
+      "channel": "@SkyNews",
+      "client": "android",
+      "cookies_used": false,
+      "status": "youtube_bot_verification",
+      "captured_seconds": 0,
+      "yt_dlp_version": "2026.10.21"
+    },
+    {
+      "tested_at_utc": "2026-10-24T08:07:52.191203+00:00",
+      "channel": "@SkyNews",
+      "client": "default",
+      "cookies_used": false,
+      "status": "youtube_bot_verification",
+      "captured_seconds": 0,
+      "yt_dlp_version": "2026.10.21"
+    }
+  ],
+  "older_native_sample_full_av_decode_passed": false,
+  "graceful_shutdown_full_av_decode_run": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40080361118",
+  "graceful_shutdown_full_av_decode_seconds": 45.000267
+}

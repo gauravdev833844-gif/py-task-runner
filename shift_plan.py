@@ -1,0 +1,54 @@
+"""Bounded overnight windows, scheduled relative to a manual start (UTC epochs)."""
+import argparse
+import json
+import math
+import os
+import time
+
+STEP = 3 * 3600
+WINDOW = 5 * 3600
+
+
+def plan(start, total_hours, now, index=0):
+    if not 0 < total_hours <= 24 or not 0 <= index <= 8:
+        raise ValueError('total_hours must be 0..24 (exclusive zero), shift_index 0..8')
+    if start > now + 60:
+        raise ValueError('session_start cannot be in the future')
+    deadline = start + round(total_hours * 3600)
+    remaining = max(0, deadline - now)
+    next_index = max(index + 1, math.floor((now - start) / STEP) + 1)
+    next_at = start + next_index * STEP
+    return {'active': remaining > 0, 'duration_hours': min(WINDOW, remaining) / 3600,
+            'deadline': deadline, 'next_at': next_at, 'next_index': next_index,
+            'chain': remaining > WINDOW and next_at < deadline and next_index <= 8}
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--duration-until', type=int)
+    args = parser.parse_args()
+    now = int(time.time())
+    if args.duration_until is not None:
+        seconds = min(WINDOW, max(0, args.duration_until - now))
+        if seconds <= 0:
+            raise SystemExit('Session deadline passed before recorder startup')
+        print(seconds / 3600)
+        return
+    total = float(os.environ.get('TOTAL_HOURS') or '12')
+    start = int(os.environ.get('SESSION_START') or now)
+    index = int(os.environ.get('SHIFT_INDEX') or '0')
+    session = os.environ.get('SESSION_ID') or os.environ.get('GITHUB_RUN_ID') or str(start)
+    if not session.isdigit():
+        raise ValueError('session ID must contain digits only')
+    result = plan(start, total, now, index)
+    result.update(session_start=start, total_hours=total, session_id=session)
+    print(json.dumps(result))
+    destination = os.environ.get('GITHUB_OUTPUT')
+    if destination:
+        with open(destination, 'a', encoding='utf-8') as output:
+            for key, value in result.items():
+                output.write(f'{key}={str(value).lower() if isinstance(value, bool) else value}\n')
+
+
+if __name__ == '__main__':
+    main()
