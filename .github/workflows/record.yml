@@ -24,6 +24,8 @@ jobs:
           fi
           python -m pip install -q -r requirements.txt -r requirements-dev.txt
       - name: Run regression and generated-media tests
+        env:
+          RECORD_WORKFLOW_PATH: validation/production-record.yml
         run: python -m unittest -v test_reliability
       - name: One short live capture and complete audio/video decode
         env:

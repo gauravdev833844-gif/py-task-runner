@@ -170,6 +170,25 @@ class UploadTests(unittest.TestCase):
 
 
 class ShutdownAndNotifyTests(unittest.TestCase):
+    def test_concat_timeout_preserves_source_chunks(self):
+        tree = ast.parse(Path('recorder.py').read_text())
+        node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'build_final_file')
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            first, second = root/'chunk1.ts', root/'chunk2.ts'
+            first.write_bytes(b'x' * 2000); second.write_bytes(b'y' * 2000)
+            namespace = {'register_recovered_chunks': lambda active: None, 'os': os,
+                         'MIN_SAVE_BYTES': 1880, 'MIN_FREE_BYTES': 512 * 1024 * 1024,
+                         'OUT_DIR': d, 'chunk_number': lambda value: value,
+                         'is_archived_short_exit': lambda path: False, 'shutil': shutil,
+                         'log': lambda message: None, 'log_raw': lambda *args: None, 'subprocess': subprocess}
+            exec(compile(ast.Module(body=[node], type_ignores=[]), '<build_final_file>', 'exec'), namespace)
+            active = {'chunks': [str(first), str(second)], 'final_ts': str(root/'final.ts'), 'chunk_dir': d}
+            with patch('subprocess.run', side_effect=subprocess.TimeoutExpired('ffmpeg', 180)) as run:
+                self.assertIsNone(namespace['build_final_file'](active))
+                self.assertEqual(run.call_args.kwargs['timeout'], 180)
+            self.assertTrue(first.exists() and second.exists())
+
     def test_low_disk_preserves_chunks_without_attempting_concat(self):
         tree = ast.parse(Path('recorder.py').read_text())
         node = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'build_final_file')
@@ -215,7 +234,7 @@ class ShutdownAndNotifyTests(unittest.TestCase):
 
 class WorkflowStatusTests(unittest.TestCase):
     def test_capture_failure_cannot_turn_green_after_successful_upload(self):
-        workflow = yaml.load(Path('.github/workflows/record.yml').read_text(), Loader=yaml.BaseLoader)
+        workflow = yaml.load(Path(os.environ.get('RECORD_WORKFLOW_PATH', '.github/workflows/record.yml')).read_text(), Loader=yaml.BaseLoader)
         script = workflow['jobs']['record']['steps'][-1]['run']
         for capture, upload, expected in [('failure', 'success', 1), ('success', 'failure', 1), ('success', 'success', 0)]:
             with tempfile.TemporaryDirectory() as d:
