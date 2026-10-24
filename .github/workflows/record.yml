@@ -56,6 +56,24 @@ jobs:
       matrix: ${{ steps.channels.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
+      - name: Require a usable cookie file before starting any shifts
+        env:
+          YT_COOKIES: ${{ secrets.YT_COOKIES }}
+        run: |
+          python3 - <<'PYCODE'
+          import os
+          raw = os.environ.pop('YT_COOKIES', '')
+          good = False
+          for line in raw.splitlines():
+              if line.startswith('#HttpOnly_'): line = line[len('#HttpOnly_'):]
+              if not line or line.startswith('#'): continue
+              fields = line.split('\t')
+              domain = fields[0].lstrip('.').lower()
+              if len(fields) >= 7 and (domain == 'youtube.com' or domain.endswith('.youtube.com')) and fields[-1]: good = True
+          raw = ''
+          if not good: raise SystemExit('YT_COOKIES is missing or malformed. Add the complete private cookie file in repository Actions secrets; no continuation shifts started.')
+          print('Private cookie file binding found; values withheld. Authentication still depends on YouTube.')
+          PYCODE
       - name: Plan bounded session
         id: plan
         env:
