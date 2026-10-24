@@ -33,7 +33,7 @@ on:
 permissions:
   contents: read
 
-# Duplicate dispatches for one window wait until its original window expires.
+# Duplicate dispatches for one window serialize; expired windows are skipped.
 # Different window indexes may overlap as intended.
 concurrency:
   group: recorder-${{ github.workflow }}-${{ inputs.session_id || github.run_id }}-${{ inputs.shift_index || 0 }}

@@ -1,0 +1,44 @@
+{
+  "local_tests": {
+    "passed": 22,
+    "failed": 0
+  },
+  "github_runner_tests": {
+    "passed": 22,
+    "failed": 0,
+    "url": "https://github.com/gauravdev833844-gif/py-task-runner/actions/runs/40096746402",
+    "source_commit": "319fc709e4ef14346cb8758ae46f384722780d3c"
+  },
+  "github_live_test": {
+    "scope": "One bounded SkyNews live engine test with existing GitHub YT_COOKIES, not uploaded-cookie validation or an overnight test",
+    "status": "PASS",
+    "full_video_audio_decode": true,
+    "recorder_exit_code": 0,
+    "duration_seconds": 30.0,
+    "bytes": 10701524,
+    "resolution": "1280x720",
+    "codec": "h264",
+    "downloaded_full_av_decode": "PASS"
+  },
+  "real_gofile_uploads": {
+    "exit_code": 0,
+    "file_count": 2,
+    "all_uploaded": true,
+    "total_bytes": 468120,
+    "seconds": 2.42,
+    "verification": "Provider acknowledged matching size and MD5; download readback not tested",
+    "scope": "Two small generated files, sequential uploads, reused guest account; not multi-GB or five concurrent repositories",
+    "sources_preserved": true
+  },
+  "workflow_lint": "actionlint 1.7.12 PASS; official binary SHA-256 checked",
+  "secrets": "No credential values, cookie files, private provider responses or raw downloader logs in package",
+  "not_tested": [
+    "Five concurrent live channels",
+    "Three-account/fifteen-channel workload",
+    "18-hour overnight run",
+    "Multi-GB provider upload or readback",
+    "Actual GitHub Release upload",
+    "Telegram delivery",
+    "Uploaded-cookie authentication"
+  ]
+}

@@ -778,7 +778,7 @@ def build_final_file(active):
 
         result = subprocess.run(
             [ffmpeg, "-hide_banner", "-loglevel", "error", "-fflags", "+genpts", "-f", "concat", "-safe", "0", "-i", list_path, "-c", "copy", "-y", final_path],
-            text=True, capture_output=True, timeout=1800,
+            text=True, capture_output=True, timeout=180,
         )
         if result.returncode == 0 and os.path.isfile(final_path) and os.path.getsize(final_path) >= MIN_SAVE_BYTES:
             for path in chunks:
