@@ -263,7 +263,7 @@ class ShutdownAndNotifyTests(unittest.TestCase):
             root = Path(d)
             first, second = root/'chunk1.ts', root/'chunk2.ts'
             first.write_bytes(b'x' * 2000); second.write_bytes(b'y' * 2000)
-            namespace = {'register_recovered_chunks': lambda active: None, 'os': os,
+            namespace = {'register_recovered_chunks': lambda active: None, 'unique_chunk_paths': lambda paths:(paths,[]), 'os': os,
                          'MIN_SAVE_BYTES': 1880, 'MIN_FREE_BYTES': 512 * 1024 * 1024,
                          'OUT_DIR': d, 'chunk_number': lambda value: value,
                          'is_archived_short_exit': lambda path: False, 'shutil': shutil,
@@ -282,7 +282,7 @@ class ShutdownAndNotifyTests(unittest.TestCase):
             root = Path(d)
             first, second = root/'chunk1.ts', root/'chunk2.ts'
             first.write_bytes(b'x' * 2000); second.write_bytes(b'y' * 2000)
-            namespace = {'register_recovered_chunks': lambda active: None, 'os': os,
+            namespace = {'register_recovered_chunks': lambda active: None, 'unique_chunk_paths': lambda paths:(paths,[]), 'os': os,
                          'MIN_SAVE_BYTES': 1880, 'MIN_FREE_BYTES': 512 * 1024 * 1024,
                          'OUT_DIR': d, 'chunk_number': lambda value: value,
                          'is_archived_short_exit': lambda path: False, 'shutil': shutil,
