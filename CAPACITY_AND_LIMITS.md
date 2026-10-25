@@ -1,9 +1,15 @@
-# Capacity and limits
+# Capacity and operational limits
 
-Three-hour recording windows start every two hours, leaving a shared two-hour upload budget within each six-hour GitHub job. The default nine-hour plan records up to twelve hours per continuously live channel (including duplicate footage); an eight-hour plan records eleven hours. At 2 Mbit/s, nine-hour monitoring can therefore produce about 10.8 GB per continuously live channel, 54 GB for five channels, or 162 GB for fifteen. These are projections, not tested capacity.
+Drive storage capacity and upload throughput are different. All repositories using one Drive authorization share that account's storage/API limits. The user's successful rclone about reports 5 TiB. This is not an upload-speed guarantee. Google Workspace's documented 750 GB/day rule should not be presented as a verified consumer Gemini/Jio quota.
 
-Google Drive storage allowance is not an upload-speed promise. Drive API limits depend on the account and workload. The same Drive account aggregates uploads from all repositories; verify quota and a real upload after OAuth connection. The Google Workspace limits page documents 750 GB/user/day and a 5 TB maximum file size; do not assume this verifies a consumer Gemini/Jio plan. Source: https://developers.google.com/workspace/drive/api/guides/limits .
+Safety copies add upload traffic. At a five-minute interval with fifteen-second overlap, their payload is about 105% of the source duration; keeping the final recording adds another copy. Three-hour windows with one-hour overlap produce twelve hours of footage per continuously live channel across a nine-hour monitoring session. At 2 Mbit/s, this is roughly 10.8 GB final footage per channel, or 162 GB for fifteen, before safety copies and retries. These are projections, not tested capacity.
 
-GitHub-hosted job limits and account-wide concurrency remain in force. More repositories/accounts are not a quota or suspension workaround. Continuous media archiving must be allowed by the runtime/provider terms; setup does not guarantee account safety or unlimited free capacity.
+Small temporary safety copies are deleted only after remote verification. The original capture remains local until its runtime is removed. The uploader's budget, Drive quota, local disk, and ongoing network throughput can still be exhausted. The code cannot retain a local-only file after an ephemeral runner is deleted.
 
-Source files are kept on the runner. If all destinations fail and the hosted runner is removed, local-only media is not a durable backup. Drive copy, Gofile and optional Release fallback share one deadline; backups may still fail. Release assets must be under 2 GiB; adaptive splitting verifies each part against a conservative 2,000,000,000-byte cap. Public repository Release assets are public.
+GitHub Actions has a six-hour job ceiling and is intended for development/testing, not a general-purpose daily media service: https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#actions . More accounts, IP changes, or more repositories are not a supported way to evade limits or suspensions.
+
+No verified zero-cost, always-online host for fifteen simultaneous nightly YouTube recordings is available in this setup. Render free services sleep and have ephemeral storage; current Hugging Face compute Space creation requires a paid plan; OCI requires payment verification. Do not promise free unattended production from these alternatives.
+
+Google OAuth refresh tokens in external Testing normally expire after seven days for Drive permissions. Publish appropriately and reconnect afterward, then store the complete refreshed config privately. Later revocation or account-security changes can still require reauthorization.
+
+Source access remains conditional: working cookies may expire or be rejected by YouTube, and private/deleted footage cannot be recreated from an unavailable source. Stop and report explicit denials; do not rotate accounts or proxies to bypass them.

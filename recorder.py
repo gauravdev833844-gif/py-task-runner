@@ -429,7 +429,7 @@ def stage_media_info(info, client):
 def run_ytdlp_json(url, client):
     def extract():
         command = [sys.executable, "-m", "yt_dlp", "--no-config", "-J",
-                   "--skip-download", "--no-warnings", "--ignore-no-formats-error",
+                   "--skip-download",
                    "--extractor-retries", "1", "--socket-timeout", "10",
                    "--playlist-items", "1"] + JS_ARGS
         if client:
@@ -481,8 +481,11 @@ def validate_candidate(video_id, client):
         HEALTH.observe('target_mismatch')
         log(f"candidate_rejected | reason={reason} | candidate_channel={info.get('channel_id')}")
         return None
+    selected=stage_media_info(info,client)
+    if not selected:
+        HEALTH.observe('no_formats');return None
     return {"id":video_id,"url":watch_url,"client":client,"match_reason":reason,
-            "media_info_file":stage_media_info(info,client),"media_info_client":client_label(client),"media_info_created":time.time()}
+            "media_info_file":selected,"media_info_client":client_label(client),"media_info_created":time.time()}
 
 
 def verify_live_id(video_id, source_kind):
@@ -517,10 +520,13 @@ def probe_fast():
         if info and is_live_candidate(info):
             matched, reason = target_match(info)
             if matched:
+                selected=stage_media_info(info,client)
+                if not selected:
+                    HEALTH.observe('no_formats');continue
                 video_id = info["id"]
                 log(f"detect_live | source=live_endpoint | live id={video_id} | client={client_label(client)} | match={reason}")
                 return {"id":video_id,"url":f"https://www.youtube.com/watch?v={video_id}","source":"live_endpoint","detected_client":client,
-                        "media_info_file":stage_media_info(info,client),"media_info_client":client_label(client),"media_info_created":time.time()}
+                        "media_info_file":selected,"media_info_client":client_label(client),"media_info_created":time.time()}
         if not HEALTH.permitted():break
     return None
 
@@ -1191,7 +1197,7 @@ secondary_thread = threading.Thread(target=secondary_detector, args=(session_end
 primary_thread.start()
 secondary_thread.start()
 
-log(f"started | channel={CHANNEL_HANDLE} | id={TARGET_CHANNEL_ID} | duration={HOURS}h | cookies={USE_COOKIES} | stall=240s")
+log(f"started | channel={CHANNEL_HANDLE} | id={TARGET_CHANNEL_ID} | duration={HOURS}h | cookies={USE_COOKIES} | stall={STALL_SECONDS}s")
 
 try:
     while time.time() < session_end and not STOP_REQUESTED:
@@ -1273,6 +1279,6 @@ log("session_complete")
 if DISK_LIMIT_REACHED:
     raise SystemExit(3)
 if not any(os.path.getsize(path) >= MIN_SAVE_BYTES for path in glob.glob(os.path.join(OUT_DIR, "**", "*.ts"), recursive=True)):
-    write_summary(status="monitoring_finished_no_media", failure_reason="no_media", probe_health=HEALTH.snapshot())
+    write_summary(status="monitoring_finished_no_media", failure_reason=HEALTH.snapshot().get("last_reason") or "no_media", probe_health=HEALTH.snapshot())
     log("no_recording_saved | monitoring finished without a final recording; inspect probe_health for offline/access/network evidence")
     raise SystemExit(2)
