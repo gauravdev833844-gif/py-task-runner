@@ -1,0 +1,117 @@
+{
+  "configured_channels": [
+    {
+      "repository": "gauravdev833844-gif/py-task-runner",
+      "channel": {
+        "handle": "@BagadBillagang-p6s",
+        "id": "UC6_0vYIN2dy3MvBuUSvtZJg"
+      }
+    },
+    {
+      "repository": "gauravdev833844-gif/py-task-newrepo",
+      "channel": {
+        "handle": "@HarshxTashu",
+        "id": "UCIvzNxn_8Avi35lki-idQHg"
+      }
+    },
+    {
+      "repository": "gauravdev833844-gif/py-task-reposit",
+      "channel": {
+        "handle": "@baskarfiroz15",
+        "id": "UCSuA9LrSsE4-GSaSYDUZhNw"
+      }
+    },
+    {
+      "repository": "gauravdev833844-gif/py-task-repo4",
+      "channel": {
+        "handle": "@bekalki",
+        "id": "UC-JQRYHht4tLKpiChum6GnA"
+      }
+    },
+    {
+      "repository": "gauravdev833844-gif/yt-recorder",
+      "channel": {
+        "handle": "@itstarunk4179",
+        "id": ""
+      }
+    },
+    {
+      "repository": "h29257583-svg/py-task-floxrepo",
+      "channel": {
+        "handle": "@floxiclip",
+        "id": "UCNty54b8Vzmk-9BRYfF0EVQ"
+      }
+    },
+    {
+      "repository": "h29257583-svg/py-task-reposaksh",
+      "channel": {
+        "handle": "@AgainSaksham8",
+        "id": "UCm86JFblxlUVEwf0vOz39aA"
+      }
+    },
+    {
+      "repository": "h29257583-svg/py-task-pbrepo",
+      "channel": {
+        "handle": "@PB7live",
+        "id": "UCKrXlieQcrc4POpG796y18A"
+      }
+    },
+    {
+      "repository": "h29257583-svg/py-task-repouzii",
+      "channel": {
+        "handle": "@UziiLive",
+        "id": "UCTAROT2c3_EvJCjP8o9R2Yw"
+      }
+    },
+    {
+      "repository": "h29257583-svg/script-py-reporish",
+      "channel": {
+        "handle": "@rishnaaa4u",
+        "id": "UCsda8YnhZU-aabHGLZcCIfw"
+      }
+    },
+    {
+      "repository": "johnwatson739418-lab/python-script-task",
+      "channel": {
+        "handle": "@Apka-aashu",
+        "id": "UCGFi8l9sf5ab4hVJf7byBZg"
+      }
+    },
+    {
+      "repository": "johnwatson739418-lab/py-task-repo-pran",
+      "channel": {
+        "id": "UCYe2VVWgjUoEEn9LaLSCk9w",
+        "handle": "@prankurv123"
+      }
+    },
+    {
+      "repository": "johnwatson739418-lab/py-task-repoansh",
+      "channel": {
+        "id": "UC3NiNPo4kJYnYYhV_6ZnUGw",
+        "handle": "@anshhhlive_1"
+      }
+    },
+    {
+      "repository": "johnwatson739418-lab/py-task-repoarhan",
+      "channel": {
+        "id": "UC1IW16v1OZaVccL5lmc7Qgw",
+        "handle": "@arhansid786"
+      }
+    },
+    {
+      "repository": "johnwatson739418-lab/py-task-reponihaan",
+      "channel": {
+        "id": "UC7fUm_Vc21j2Njra8VUHiaA",
+        "handle": "@nihaanbhattagainn"
+      }
+    },
+    {
+      "repository": "johnwatson739418-lab/python-task-repogoredo",
+      "channel": {
+        "id": "UC8MRu8goXUOM-_YaGsUvsmQ",
+        "handle": "@GOREDOXLIVE"
+      }
+    }
+  ],
+  "note": "Public configuration snapshot. Repository settings are preserved. Inventory is not a capture or authorization result."
+}
