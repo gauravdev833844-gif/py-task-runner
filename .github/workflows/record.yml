@@ -165,8 +165,7 @@ jobs:
             echo '::error::YT_COOKIES is missing; refusing to claim an authenticated test.'
             exit 2
           fi
-          umask 077
-          printf '%s' "$YT_COOKIES" > "$cookie_path"
+          python3 -c "import os; open('$cookie_path', 'w', encoding='utf-8', newline='\n').write(os.environ.get('YT_COOKIES', '').lstrip('\ufeff'))"
           export USE_COOKIES=true COOKIE_FILE="$cookie_path"
           unset YT_COOKIES
           HOURS="$(python shift_plan.py --duration-until "$SESSION_DEADLINE")"

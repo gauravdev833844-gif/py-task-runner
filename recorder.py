@@ -35,6 +35,13 @@ if not 0 < HOURS <= 5.0:
 OUT_DIR = os.getenv("OUT_DIR", "./streams").strip()
 
 COOKIE_FILE = os.getenv("COOKIE_FILE", "cookies.txt").strip()
+if COOKIE_FILE and os.path.isfile(COOKIE_FILE):
+    try:
+        raw_cookie = open(COOKIE_FILE, "r", encoding="utf-8-sig").read().lstrip("\ufeff")
+        open(COOKIE_FILE, "w", encoding="utf-8", newline="\n").write(raw_cookie)
+    except Exception:
+        pass
+
 USE_COOKIES = (
     os.getenv("USE_COOKIES", "false").lower() == "true"
     and bool(COOKIE_FILE)
@@ -394,7 +401,8 @@ def run_ytdlp_json(url, client):
             reason = "botcheck" if any(marker in message for marker in BOTCHECK_MARKERS) else (
                 "rate_limited" if any(marker in message for marker in RATE_LIMIT_MARKERS) else (
                 "not_live" if any(marker in message for marker in NOT_LIVE_MARKERS) else "extraction_failed"))
-            log(f"probe_failed | client={client_label(client)} | reason={reason} | exit={result.returncode}")
+            err_snip = " ".join(result.stderr.split())[:180]
+            log(f"probe_failed | client={client_label(client)} | reason={reason} | exit={result.returncode} | err={err_snip}")
     except subprocess.TimeoutExpired:
         log(f"probe_failed | client={client_label(client)} | reason=timeout")
     except Exception as exc:
