@@ -1,23 +1,52 @@
-name: Check recorder setup
+name: Check recorder setup - bounded real preflight
 on:
   workflow_dispatch:
+    inputs:
+      survey:
+        description: Survey the four fixed public channel candidates sequentially
+        type: boolean
+        default: true
+      channel:
+        description: Optional YouTube handle or UC channel ID when survey is false
+        type: string
+        required: false
+        default: ''
 permissions:
   contents: read
+concurrency:
+  group: bounded-preflight-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
-  check:
+  preflight:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Check private cookie binding without contacting YouTube
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned metadata dependency from existing requirements
+        timeout-minutes: 10
+        run: python -m pip install --disable-pip-version-check --no-input -q -r requirements.txt
+      - name: One tiny Drive round trip and bounded metadata survey
+        timeout-minutes: 10
         env:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
-        run: python3 check_setup.py
-      - name: Save small setup report
+          PREFLIGHT_BATCH_ID: parallel-five-20261026
+          PREFLIGHT_SURVEY: ${{ inputs.survey }}
+          PREFLIGHT_CHANNEL: ${{ inputs.channel }}
+        run: python preflight_worker.py
+      - name: Save only sanitized preflight evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: setup-check
-          path: setup-check.json
-          retention-days: 1
+          name: bounded-preflight-${{ github.run_id }}
+          path: |
+            preflight.json
+            drive-test-result.json
+          if-no-files-found: warn
+          retention-days: 3
