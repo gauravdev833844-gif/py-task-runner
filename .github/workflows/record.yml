@@ -7,6 +7,11 @@ on:
         description: Bounded recording session hours, maximum 14
         type: number
         default: 9
+      release_backup:
+        description: Backup failed uploads to GitHub Releases
+        required: false
+        default: false
+        type: boolean
       session_start:
         type: string
         default: ''
