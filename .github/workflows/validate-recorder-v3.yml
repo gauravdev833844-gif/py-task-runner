@@ -1,31 +1,12 @@
-name: Bounded recorder v3 validation
+name: Validate repaired recorder components
 on:
   workflow_dispatch:
-    inputs:
-      capture_live:
-        type: boolean
-        default: true
-      channel:
-        type: string
-        default: '@SkyNews'
-      seconds:
-        type: number
-        default: 90
-      run_unit_tests:
-        type: boolean
-        default: false
-      run_fault_test:
-        type: boolean
-        default: false
 permissions:
   contents: read
-defaults:
-  run:
-    working-directory: recorder_v3
 jobs:
-  validate:
+  offline-components:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -34,45 +15,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install pinned capture and test dependencies
-        timeout-minutes: 12
+      - name: Install pinned test dependency and local media tools
+        timeout-minutes: 5
         run: |
           set -euo pipefail
-          missing=()
-          for binary in ffmpeg curl rclone; do
-            if ! command -v "$binary" >/dev/null; then missing+=("$binary"); fi
-          done
-          if ((${#missing[@]})); then
-            sudo apt-get -o Acquire::Retries=3 update -qq
-            sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 "${missing[@]}"
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            if ! sudo timeout --kill-after=10s 60s apt-get install -y --no-install-recommends -o Acquire::Retries=0 ffmpeg; then
+              sudo timeout --kill-after=10s 45s apt-get -o Acquire::Retries=0 update -qq
+              sudo timeout --kill-after=10s 60s apt-get install -y --no-install-recommends -o Acquire::Retries=0 ffmpeg
+            fi
           fi
-          python -m pip install -q -r requirements.txt -r requirements-dev.txt
-      - name: Check repo secrets, actual Drive and bounded live capture
-        timeout-minutes: 18
-        env:
-          YT_COOKIES: ${{ secrets.YT_COOKIES }}
-          RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          CAPTURE_LIVE: ${{ inputs.capture_live }}
-          VALIDATION_CHANNEL: ${{ inputs.channel }}
-          VALIDATION_SECONDS: ${{ inputs.seconds }}
-          RUN_UNIT_TESTS: ${{ inputs.run_unit_tests }}
-          RUN_FAULT_TEST: ${{ inputs.run_fault_test }}
-        run: python validate_daily.py
-      - name: Save metadata and verified upload receipts only
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: daily-validation-${{ github.run_id }}
-          path: |
-            recorder_v3/daily-validation.json
-            recorder_v3/setup-check.json
-            recorder_v3/drive-test-result.json
-            recorder_v3/telegram-readiness.json
-            recorder_v3/upload-report.json
-            recorder_v3/streams/*_summary.json
-            recorder_v3/streams/rolling-backup.json
-            recorder_v3/validation/network-blink-streamlink/result.json
-          if-no-files-found: warn
-          retention-days: 3
+          timeout --kill-after=5s 90s python -m pip install --disable-pip-version-check -q 'yt-dlp[default,curl-cffi]==2026.10.21'
+      - name: Verify detector, credential isolation, media validation and Drive reconciliation
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python -m unittest -v test_detection_fix test_diagnostic_canary test_drive_pipeline
+          python -m py_compile recorder.py diagnostic_canary.py capture_session.py rolling_backup.py publish_recordings.py run_upload.py chain_shift.py shift_plan.py
