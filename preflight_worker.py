@@ -174,6 +174,16 @@ def sanitize_metadata(info, channel):
         "channel_id": None, "video_id": None, "is_live": None,
         "live_status": None, "formats": [], "stop_survey": False,
     }
+    if not isinstance(info, dict):
+        row["reason"] = "incomplete_extractor_result"
+        return row
+    if info.get("_type") == "playlist" and info.get("entries"):
+        for entry in info["entries"]:
+            if entry and isinstance(entry, dict) and (entry.get("is_live") or entry.get("live_status") == "is_live"):
+                info = entry
+                break
+        else:
+            info = info["entries"][0] if info["entries"] else info
     if not isinstance(info, dict) or info.get("_type", "video") != "video":
         row["reason"] = "incomplete_extractor_result"
         return row
@@ -218,10 +228,10 @@ def probe_channel(channel, cookie_text, private_root):
         cookie_path = Path(directory) / "cookies.txt"
         write_private(cookie_path, cookie_text)
         command = [
-            sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-cache-dir",
-            "--js-runtimes", "node", "--socket-timeout", "10",
-            "--retries", "0", "--extractor-retries", "0", "--fragment-retries", "0",
-            "--no-playlist", "--skip-download", "--dump-single-json",
+            sys.executable, "-m", "yt_dlp", "--no-config", "--no-cache-dir",
+            "--js-runtimes", "node", "--socket-timeout", "15",
+            "--retries", "1", "--extractor-retries", "1", "--fragment-retries", "0",
+            "--playlist-items", "1", "--skip-download", "--dump-single-json",
             "--cookies", str(cookie_path), target,
         ]
         try:
@@ -236,10 +246,14 @@ def probe_channel(channel, cookie_text, private_root):
             row["reason"] = "metadata_timeout"
         elif outcome.code:
             # A generic failure is never counted as an offline channel.
-            if "the channel is not currently live" in outcome.stderr.decode("utf-8", errors="replace").casefold():
+            err_text = outcome.stderr.decode("utf-8", errors="replace").strip()
+            if "the channel is not currently live" in err_text.casefold():
                 row.update(source_validity="confirmed_not_live", is_live=False, reason="channel_explicitly_not_live")
             else:
-                row["reason"] = "metadata_extraction_failed"
+                err_lines = [l for l in err_text.splitlines() if "ERROR:" in l]
+                summary = err_lines[0] if err_lines else err_text[:120]
+                summary = re.sub(r"https?://\S+", "[URL]", summary)
+                row["reason"] = f"metadata_extraction_failed: {summary}" if summary else "metadata_extraction_failed"
         else:
             try:
                 row = sanitize_metadata(json.loads(outcome.stdout), channel)
