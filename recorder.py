@@ -391,7 +391,7 @@ def run_ytdlp_json(url, client):
         "--skip-download", "--no-warnings", "--ignore-no-formats-error",
         "--socket-timeout", "15", "--retries", "1", "--extractor-retries", "1",
         "--playlist-items", "1",
-    ] + JS_ARGS
+    ]
 
     if client:
         command += ["--extractor-args", f"youtube:player_client={client}"]
@@ -399,11 +399,13 @@ def run_ytdlp_json(url, client):
         command += ["--cookies", COOKIE_FILE]
     command.append(url)
 
+    log(f"ytdlp_exec | client={client_label(client)} | url={url}")
     try:
         result = subprocess.run(
             command, text=True, encoding="utf-8", errors="replace",
             capture_output=True, timeout=PROBE_TIMEOUT_SECONDS
         )
+        log(f"ytdlp_done | client={client_label(client)} | exit={result.returncode} | bytes={len(result.stdout or '')}")
         if result.returncode == 0 and result.stdout.strip():
             raw = json.loads(result.stdout)
             if raw.get("_type") == "playlist" and raw.get("entries"):
@@ -466,10 +468,13 @@ def extract_rss_video_ids(xml):
 def validate_candidate(video_id, client):
     watch_url = f"https://www.youtube.com/watch?v={video_id}"
     info = run_ytdlp_json(watch_url, client)
-    if not info or not is_live_candidate(info):
+    if not info:
+        log(f"validate_candidate | vid={video_id} | client={client_label(client)} | no_info")
         return None
+    is_live = is_live_candidate(info)
     matched, reason = target_match(info)
-    if not matched:
+    log(f"validate_candidate | vid={video_id} | client={client_label(client)} | is_live={is_live} | matched={matched} ({reason})")
+    if not is_live or not matched:
         return None
     return {"id": video_id, "url": watch_url, "client": client, "match_reason": reason}
 
@@ -493,18 +498,22 @@ def verify_live_id(video_id, source_kind):
 
 
 def probe_fast():
-    info = run_ytdlp_json(LIVE_URL, "android") or run_ytdlp_json(LIVE_URL, None)
+    log(f"probe_fast_start | LIVE_URL={LIVE_URL}")
+    info = run_ytdlp_json(LIVE_URL, "android")
+    if not info:
+        info = run_ytdlp_json(LIVE_URL, None)
     if not info:
         log("probe_fast | ytdlp returned no info")
     else:
         video_id = info.get("id")
-        if is_live_candidate(info):
-            matched, reason = target_match(info)
-            if matched:
-                global LIVE_DETECTED_EVER
-                LIVE_DETECTED_EVER = True
-                log(f"detect_live | source=live_endpoint | live id={video_id} | client=android | match={reason}")
-                return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": "android"}
+        is_live = is_live_candidate(info)
+        matched, reason = target_match(info)
+        log(f"probe_fast_eval | id={video_id} | is_live={is_live} | live_status={info.get('live_status')} | matched={matched} ({reason})")
+        if is_live and matched:
+            global LIVE_DETECTED_EVER
+            LIVE_DETECTED_EVER = True
+            log(f"detect_live | source=live_endpoint | live id={video_id} | client=android | match={reason}")
+            return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": "android"}
 
         # If info gave a video ID (e.g. from channel tab entry where live_status is omitted), verify its watch URL directly
         if video_id and re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
@@ -514,7 +523,9 @@ def probe_fast():
 
     # Fallback to channel home page if direct live endpoint was inconclusive
     home_html = fetch_text(CHANNEL_URL)
-    for video_id in extract_live_badge_ids(home_html)[:2]:
+    badge_ids = extract_live_badge_ids(home_html)
+    log(f"probe_fast_fallback | badge_ids={badge_ids}")
+    for video_id in badge_ids[:2]:
         result = verify_live_id(video_id, "home_live_badge")
         if result:
             return result
@@ -876,7 +887,7 @@ def make_download_cmd(active, chunk_path, client):
         "--fragment-retries", "infinite", "--retry-sleep", "http:2", "--retry-sleep", "fragment:1",
         "--skip-unavailable-fragments", "--hls-use-mpegts", "--downloader", "m3u8:native", "-N", "1",
         "-f", FORMAT_SELECTOR, "-S", SORT_EXPR, "-o", chunk_path,
-    ] + JS_ARGS
+    ]
 
     if client:
         command += ["--extractor-args", f"youtube:player_client={client}"]
