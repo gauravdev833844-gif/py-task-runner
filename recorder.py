@@ -94,8 +94,8 @@ STALL_RETRY_BACKOFF_SECONDS = 4
 CLIENT_SWITCH_DELAY_SECONDS = 5
 
 # Candidate order; use the probe workflow to validate clients on your runner.
-DOWNLOAD_CLIENTS = [None, "web", "web_safari"]
-VALIDATION_CLIENTS = [None, "web"]
+DOWNLOAD_CLIENTS = ["android", None, "web"]
+VALIDATION_CLIENTS = ["android", None, "web"]
 
 SESSION_ACTIVE = threading.Event()
 DOWNLOAD_ACTIVE = threading.Event()
@@ -493,7 +493,7 @@ def verify_live_id(video_id, source_kind):
 
 
 def probe_fast():
-    info = run_ytdlp_json(LIVE_URL, None)
+    info = run_ytdlp_json(LIVE_URL, "android") or run_ytdlp_json(LIVE_URL, None)
     if not info:
         log("probe_fast | ytdlp returned no info")
     else:
@@ -503,8 +503,8 @@ def probe_fast():
             if matched:
                 global LIVE_DETECTED_EVER
                 LIVE_DETECTED_EVER = True
-                log(f"detect_live | source=live_endpoint | live id={video_id} | client=default | match={reason}")
-                return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": None}
+                log(f"detect_live | source=live_endpoint | live id={video_id} | client=android | match={reason}")
+                return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": "android"}
 
         # If info gave a video ID (e.g. from channel tab entry where live_status is omitted), verify its watch URL directly
         if video_id and re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
