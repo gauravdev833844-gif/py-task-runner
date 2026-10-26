@@ -188,6 +188,7 @@ jobs:
           path: |
             upload-report.json
             streams/**/*_summary.json
+            streams/**/*.log
           if-no-files-found: warn
           retention-days: 2
       - name: Optional Telegram text notification

@@ -51,9 +51,9 @@ USE_COOKIES = (
 
 FORMAT_SELECTOR = os.getenv(
     "FORMAT_SELECTOR",
-    "b[height<=1080][height>=480][protocol*=m3u8]/b[height<=720][protocol*=m3u8]/b[protocol*=m3u8]/b[height<=1080][height>=480]/b[height<=720]/b",
+    "bv*[height<=1080]+ba/b[height<=1080]/bv*[height<=720]+ba/b[height<=720]/bv*+ba/b",
 )
-SORT_EXPR = "res:720,fps,br"
+SORT_EXPR = "res:1080,fps,br"
 
 PRIMARY_RECHECK_SECONDS = 25
 ACTIVE_SESSION_RECHECK_SECONDS = 120
@@ -665,7 +665,7 @@ def save_active_state(active):
 
 
 def chunk_number(path):
-    match = re.search(r"_chunk(\d+)\.ts(?:\.part)?$", os.path.basename(path))
+    match = re.search(r"_chunk(\d+)", os.path.basename(path))
     return int(match.group(1)) if match else 0
 
 
@@ -913,8 +913,16 @@ def make_download_cmd(active, chunk_path, client):
 def current_saved_path(base_path):
     if os.path.isfile(base_path):
         return base_path
-    part_path = base_path + ".part"
-    return part_path if os.path.isfile(part_path) else None
+    for ext in (".part", ".mp4", ".ts.mp4", ".mkv", ".webm"):
+        candidate = base_path + ext
+        if os.path.isfile(candidate):
+            return candidate
+    base_no_ext = os.path.splitext(base_path)[0]
+    for ext in (".mp4", ".ts", ".mkv", ".webm"):
+        candidate = base_no_ext + ext
+        if os.path.isfile(candidate):
+            return candidate
+    return None
 
 
 def finalize_download_path(base_path):
@@ -1333,8 +1341,12 @@ def main():
     if DISK_LIMIT_REACHED:
         raise SystemExit(3)
     saved_paths = [
-        path for path in glob.glob(os.path.join(OUT_DIR, "**", "*.ts"), recursive=True)
-        if os.path.getsize(path) >= MIN_SAVE_BYTES
+        path for path in (
+            glob.glob(os.path.join(OUT_DIR, "**", "*.ts"), recursive=True)
+            + glob.glob(os.path.join(OUT_DIR, "**", "*.mp4"), recursive=True)
+            + glob.glob(os.path.join(OUT_DIR, "**", "*.mkv"), recursive=True)
+        )
+        if os.path.isfile(path) and os.path.getsize(path) >= MIN_SAVE_BYTES and not path.endswith(".part")
     ]
 
     if not saved_paths:
