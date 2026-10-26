@@ -75,18 +75,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install pinned capture dependency and bounded OS prerequisites
-        timeout-minutes: 6
+      - name: Install pinned capture dependency and fast static tools
+        timeout-minutes: 4
         run: |
           set -euo pipefail
-          missing=()
-          command -v ffmpeg >/dev/null || missing+=(ffmpeg)
-          command -v rclone >/dev/null || missing+=(rclone)
-          if (( ${#missing[@]} )); then
-            if ! sudo timeout --kill-after=10s 90s apt-get install -y --no-install-recommends -o Acquire::Retries=0 "${missing[@]}"; then
-              sudo timeout --kill-after=10s 60s apt-get -o Acquire::Retries=0 update -qq
-              sudo timeout --kill-after=10s 90s apt-get install -y --no-install-recommends -o Acquire::Retries=0 "${missing[@]}"
-            fi
+          if ! command -v ffmpeg >/dev/null; then
+            curl -fsSL https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz | sudo tar -xJ --strip-components=2 -C /usr/local/bin --wildcards '*/bin/ffmpeg' '*/bin/ffprobe'
+          fi
+          if ! command -v rclone >/dev/null; then
+            curl -fsSL https://downloads.rclone.org/v1.68.2/rclone-v1.68.2-linux-amd64.deb -o /tmp/rclone.deb
+            sudo dpkg -i /tmp/rclone.deb
+            rm -f /tmp/rclone.deb
           fi
           timeout --kill-after=10s 120s python -m pip install --disable-pip-version-check --no-input -q 'yt-dlp[default,curl-cffi]==2026.10.21' 'streamlink==8.6.2'
           python -m yt_dlp --version
@@ -107,7 +106,7 @@ jobs:
           RECORDING_SHIFT_INDEX: ${{ inputs.shift_index || 0 }}
           SESSION_DEADLINE: ${{ needs.prepare.outputs.window_deadline }}
           OUT_DIR: streams
-          FORMAT_SELECTOR: best[height<=720][protocol*=m3u8][vcodec!=none][acodec!=none]
+          FORMAT_SELECTOR: best[height<=1440][protocol*=m3u8]/best[protocol*=m3u8]/best
           CAPTURE_TRANSPORT: streamlink_hls
           SKIP_DEPENDENCY_INSTALL: 'true'
           SAFETY_CLIP_SECONDS: '300'
