@@ -1,0 +1,15 @@
+{
+  "status": "PASS",
+  "scope": "one_generated_tiny_file",
+  "remote_size_md5_confirmed": true,
+  "readback_sha256_matches": true,
+  "cleanup_required": true,
+  "cleanup_success": true,
+  "sharing": "sharing_permissions_not_modified_or_verified",
+  "quota_bytes": {
+    "total": 5497558138880,
+    "used": 48234701078,
+    "free": 5449241473735
+  },
+  "bytes": 2752
+}

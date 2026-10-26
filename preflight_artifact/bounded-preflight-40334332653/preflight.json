@@ -1,0 +1,53 @@
+{
+  "schema": "bounded-preflight-v1",
+  "status": "FAIL",
+  "tested_at_utc": "2026-10-26T13:52:05.292795+00:00",
+  "scope": "tiny_drive_roundtrip_and_youtube_metadata_only",
+  "media_downloaded": false,
+  "overnight_workload_tested": false,
+  "metadata_not_tested": false,
+  "client": "default",
+  "metadata_timeout_seconds": 45,
+  "prerequisites": {
+    "yt_dlp_version": "2026.10.21",
+    "yt_dlp_pinned_version_ready": true,
+    "node_22_version": "v22.23.3",
+    "node_22_ready": true,
+    "rclone_present": true
+  },
+  "sources": [
+    {
+      "channel": "@SkyNews",
+      "source_validity": "blocked",
+      "channel_id": null,
+      "video_id": null,
+      "is_live": null,
+      "live_status": null,
+      "formats": [],
+      "stop_survey": true,
+      "reason": "youtube_bot_verification"
+    }
+  ],
+  "survey_stopped": true,
+  "requested_channels": [
+    "@SkyNews"
+  ],
+  "cookie_binding_present": true,
+  "cookie_format_valid": true,
+  "drive": {
+    "status": "PASS",
+    "scope": "one_generated_tiny_file",
+    "remote_size_md5_confirmed": true,
+    "readback_sha256_matches": true,
+    "cleanup_required": true,
+    "cleanup_success": true,
+    "sharing": "sharing_permissions_not_modified_or_verified",
+    "quota_bytes": {
+      "total": 5497558138880,
+      "used": 48234712086,
+      "free": 5449241462727
+    },
+    "bytes": 2752
+  },
+  "metadata_status": "blocked"
+}
