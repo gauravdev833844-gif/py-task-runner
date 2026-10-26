@@ -91,19 +91,51 @@ def cookie_syntax_valid(value):
     return False
 
 
-def drive_syntax_valid(value):
+DRIVE_REQUIRED_SHAPE = (
+    "config_received", "ini_parsed", "drive_section_present", "drive_type_valid",
+    "token_json_valid", "refresh_token_present",
+)
+
+
+def drive_config_shape(value):
+    """Inspect structure without returning values, names, tokens or parser errors."""
+    shape = {
+        "config_received": isinstance(value, str) and bool(value.strip()),
+        "ini_parsed": False, "drive_section_present": False,
+        "drive_type_valid": False, "token_json_valid": False,
+        "refresh_token_present": False, "access_token_present": False,
+        "own_client_id_present": False, "own_client_secret_present": False,
+        "own_client_present": False,
+    }
+    if not shape["config_received"]:
+        return shape
     try:
         config = configparser.ConfigParser(interpolation=None)
         config.read_string(value)
-        token = json.loads(config.get("drive", "token", fallback="{}"))
-        return bool(
-            config.get("drive", "type", fallback="") == "drive"
-            and config.get("drive", "client_id", fallback="").strip()
-            and config.get("drive", "client_secret", fallback="").strip()
-            and isinstance(token, dict) and token.get("refresh_token")
-        )
-    except (configparser.Error, ValueError, TypeError, AttributeError):
-        return False
+    except (configparser.Error, TypeError, AttributeError):
+        return shape
+    shape["ini_parsed"] = True
+    shape["drive_section_present"] = config.has_section("drive")
+    if not shape["drive_section_present"]:
+        return shape
+    shape["drive_type_valid"] = config.get("drive", "type", fallback="").strip() == "drive"
+    shape["own_client_id_present"] = bool(config.get("drive", "client_id", fallback="").strip())
+    shape["own_client_secret_present"] = bool(config.get("drive", "client_secret", fallback="").strip())
+    shape["own_client_present"] = shape["own_client_id_present"] and shape["own_client_secret_present"]
+    try:
+        token = json.loads(config.get("drive", "token", fallback=""))
+    except (ValueError, TypeError):
+        return shape
+    shape["token_json_valid"] = isinstance(token, dict)
+    if shape["token_json_valid"]:
+        shape["refresh_token_present"] = isinstance(token.get("refresh_token"), str) and bool(token["refresh_token"].strip())
+        shape["access_token_present"] = isinstance(token.get("access_token"), str) and bool(token["access_token"].strip())
+    return shape
+
+
+def drive_syntax_valid(value):
+    shape = drive_config_shape(value)
+    return all(shape[key] for key in DRIVE_REQUIRED_SHAPE)
 
 
 def denial_reason(raw):
@@ -174,16 +206,6 @@ def sanitize_metadata(info, channel):
         "channel_id": None, "video_id": None, "is_live": None,
         "live_status": None, "formats": [], "stop_survey": False,
     }
-    if not isinstance(info, dict):
-        row["reason"] = "incomplete_extractor_result"
-        return row
-    if info.get("_type") == "playlist" and info.get("entries"):
-        for entry in info["entries"]:
-            if entry and isinstance(entry, dict) and (entry.get("is_live") or entry.get("live_status") == "is_live"):
-                info = entry
-                break
-        else:
-            info = info["entries"][0] if info["entries"] else info
     if not isinstance(info, dict) or info.get("_type", "video") != "video":
         row["reason"] = "incomplete_extractor_result"
         return row
@@ -228,10 +250,10 @@ def probe_channel(channel, cookie_text, private_root):
         cookie_path = Path(directory) / "cookies.txt"
         write_private(cookie_path, cookie_text)
         command = [
-            sys.executable, "-m", "yt_dlp", "--no-config", "--no-cache-dir",
-            "--js-runtimes", "node", "--socket-timeout", "15",
-            "--retries", "1", "--extractor-retries", "1", "--fragment-retries", "0",
-            "--playlist-items", "1", "--skip-download", "--dump-single-json",
+            sys.executable, "-m", "yt_dlp", "--ignore-config", "--no-cache-dir",
+            "--js-runtimes", "node", "--socket-timeout", "10",
+            "--retries", "0", "--extractor-retries", "0", "--fragment-retries", "0",
+            "--no-playlist", "--skip-download", "--dump-single-json",
             "--cookies", str(cookie_path), target,
         ]
         try:
@@ -246,14 +268,10 @@ def probe_channel(channel, cookie_text, private_root):
             row["reason"] = "metadata_timeout"
         elif outcome.code:
             # A generic failure is never counted as an offline channel.
-            err_text = outcome.stderr.decode("utf-8", errors="replace").strip()
-            if "the channel is not currently live" in err_text.casefold():
+            if "the channel is not currently live" in outcome.stderr.decode("utf-8", errors="replace").casefold():
                 row.update(source_validity="confirmed_not_live", is_live=False, reason="channel_explicitly_not_live")
             else:
-                err_lines = [l for l in err_text.splitlines() if "ERROR:" in l]
-                summary = err_lines[0] if err_lines else err_text[:120]
-                summary = re.sub(r"https?://\S+", "[URL]", summary)
-                row["reason"] = f"metadata_extraction_failed: {summary}" if summary else "metadata_extraction_failed"
+                row["reason"] = "metadata_extraction_failed"
         else:
             try:
                 row = sanitize_metadata(json.loads(outcome.stdout), channel)
@@ -267,18 +285,23 @@ class DriveFailure(Exception):
 
 
 def drive_roundtrip(config_text, private_root):
+    shape = drive_config_shape(config_text)
     result = {
         "status": "FAIL", "scope": "one_generated_tiny_file",
         "remote_size_md5_confirmed": False, "readback_sha256_matches": False,
         "cleanup_required": False, "cleanup_success": False,
         "sharing": "sharing_permissions_not_modified_or_verified",
+        "config_shape": shape,
+        "long_term_authorization_readiness_verified": False,
     }
     if not shutil.which("rclone"):
         result["failure"] = "rclone_missing_prerequisite"
         return result
-    if not drive_syntax_valid(config_text):
-        result["failure"] = "drive_secret_missing_or_invalid_own_oauth_config"
+    if not all(shape[key] for key in DRIVE_REQUIRED_SHAPE):
+        result["failure"] = "drive_secret_missing_or_invalid_config"
         return result
+    if not shape["own_client_present"]:
+        result["warning"] = "own_client_not_configured_legacy_authorization_unverified_long_term"
     with tempfile.TemporaryDirectory(prefix="drive-", dir=private_root) as directory:
         root = Path(directory)
         config = root / "rclone.conf"

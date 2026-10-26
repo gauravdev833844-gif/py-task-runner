@@ -1,29 +1,42 @@
-name: Test Google Drive upload
+name: Test Google Drive upload - bounded verified roundtrip
 on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: urgent-drive-check-${{ github.repository }}
+  cancel-in-progress: false
 jobs:
-  test:
+  drive:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v4
-      - name: Install rclone
+      - name: Install uploader with bounded OS package fallback
+        timeout-minutes: 5
         run: |
+          set -euo pipefail
           if ! command -v rclone >/dev/null; then
-            sudo apt-get update -qq
-            sudo apt-get install -y rclone
+            if ! sudo timeout --kill-after=10s 90s apt-get install -y --no-install-recommends -o Acquire::Retries=0 rclone; then
+              sudo timeout --kill-after=10s 60s apt-get -o Acquire::Retries=0 update -qq
+              sudo timeout --kill-after=10s 90s apt-get install -y --no-install-recommends -o Acquire::Retries=0 rclone
+            fi
           fi
-      - name: Upload, read back and remove one private generated test file
+          rclone version
+      - name: Verify tiny Drive file and clean it up
+        timeout-minutes: 5
         env:
           RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
-          GDRIVE_REMOTE: ${{ vars.GDRIVE_REMOTE || 'drive:YouTubeRecordings' }}
-        run: python3 test_drive_connection.py
-      - name: Save small sanitized test report
+          PREFLIGHT_DRIVE_ONLY: 'true'
+          PREFLIGHT_BATCH_ID: urgent-five-20261026
+        run: python3 preflight_worker.py
+      - name: Save sanitized evidence only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: drive-connection-result
-          path: drive-test-result.json
+          name: urgent-drive-${{ github.run_id }}
+          path: |
+            preflight.json
+            drive-test-result.json
+          if-no-files-found: warn
           retention-days: 2
