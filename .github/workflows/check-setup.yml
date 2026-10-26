@@ -40,8 +40,9 @@ jobs:
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null; then
-            sudo timeout --kill-after=10s 120s apt-get -o Acquire::Retries=0 update -qq
-            sudo timeout --kill-after=10s 120s apt-get install -y --no-install-recommends -o Acquire::Retries=0 rclone
+            curl -fsSL -o /tmp/rclone.deb https://github.com/rclone/rclone/releases/download/v1.68.2/rclone-v1.68.2-linux-amd64.deb
+            sudo dpkg -i /tmp/rclone.deb
+            rm -f /tmp/rclone.deb
           fi
           rclone version
       - name: One tiny Drive round trip and bounded metadata survey
