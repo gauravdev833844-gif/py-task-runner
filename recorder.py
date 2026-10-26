@@ -480,30 +480,15 @@ def verify_live_id(video_id, source_kind):
         return None
 
     started = time.monotonic()
-    executor = ThreadPoolExecutor(max_workers=len(VALIDATION_CLIENTS))
-    futures = {executor.submit(validate_candidate, video_id, client): client for client in VALIDATION_CLIENTS}
-    result = None
+    for client in VALIDATION_CLIENTS:
+        candidate = validate_candidate(video_id, client)
+        if candidate:
+            global LIVE_DETECTED_EVER
+            LIVE_DETECTED_EVER = True
+            elapsed = time.monotonic() - started
+            log(f"detect_live | source={source_kind} | live id={candidate['id']} | client={client_label(client)} | match={candidate['match_reason']} | validation={elapsed:.1f}s")
+            return {"id": candidate["id"], "url": candidate["url"], "source": source_kind, "detected_client": client}
 
-    try:
-        for future in as_completed(futures, timeout=PROBE_TIMEOUT_SECONDS + 2):
-            try:
-                candidate = future.result()
-            except Exception:
-                candidate = None
-            if candidate:
-                result = candidate
-                break
-    except Exception:
-        pass
-    finally:
-        executor.shutdown(wait=False)
-
-    if result:
-        global LIVE_DETECTED_EVER
-        LIVE_DETECTED_EVER = True
-        elapsed = time.monotonic() - started
-        log(f"detect_live | source={source_kind} | live id={result['id']} | client={client_label(result['client'])} | match={result['match_reason']} | validation={elapsed:.1f}s")
-        return {"id": result["id"], "url": result["url"], "source": source_kind, "detected_client": result["client"]}
     return None
 
 
@@ -512,15 +497,20 @@ def probe_fast():
     if not info:
         log("probe_fast | ytdlp returned no info")
     else:
-        is_live = is_live_candidate(info)
-        matched, reason = target_match(info)
-        log(f"probe_fast | id={info.get('id')} | is_live={is_live} | live_status={info.get('live_status')} | matched={matched} ({reason})")
-        if is_live and matched:
-            video_id = info["id"]
-            global LIVE_DETECTED_EVER
-            LIVE_DETECTED_EVER = True
-            log(f"detect_live | source=live_endpoint | live id={video_id} | client=default | match={reason}")
-            return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": None}
+        video_id = info.get("id")
+        if is_live_candidate(info):
+            matched, reason = target_match(info)
+            if matched:
+                global LIVE_DETECTED_EVER
+                LIVE_DETECTED_EVER = True
+                log(f"detect_live | source=live_endpoint | live id={video_id} | client=default | match={reason}")
+                return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": None}
+
+        # If info gave a video ID (e.g. from channel tab entry where live_status is omitted), verify its watch URL directly
+        if video_id and re.fullmatch(r"[A-Za-z0-9_-]{11}", video_id):
+            result = verify_live_id(video_id, "live_endpoint_watch")
+            if result:
+                return result
 
     # Fallback to channel home page if direct live endpoint was inconclusive
     home_html = fetch_text(CHANNEL_URL)
