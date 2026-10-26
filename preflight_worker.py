@@ -133,6 +133,27 @@ def drive_config_shape(value):
     return shape
 
 
+def normalize_drive_text(value):
+    """Repair only recognized text wrappers, never credentials or remote names."""
+    if not isinstance(value, str):
+        return value, False
+    candidates = [value.lstrip("\ufeff").strip()]
+    try:
+        decoded = json.loads(candidates[0])
+        if isinstance(decoded, str):
+            candidates.append(decoded.lstrip("\ufeff").strip())
+    except (ValueError, TypeError):
+        pass
+    for candidate in tuple(candidates):
+        if "\n" not in candidate and "\\n" in candidate:
+            candidates.append(candidate.replace("\\r\\n", "\n").replace("\\n", "\n"))
+    for candidate in candidates:
+        shape = drive_config_shape(candidate)
+        if all(shape[key] for key in DRIVE_REQUIRED_SHAPE):
+            return candidate, candidate != value
+    return value, False
+
+
 def drive_syntax_valid(value):
     shape = drive_config_shape(value)
     return all(shape[key] for key in DRIVE_REQUIRED_SHAPE)
@@ -285,6 +306,7 @@ class DriveFailure(Exception):
 
 
 def drive_roundtrip(config_text, private_root):
+    config_text, normalized = normalize_drive_text(config_text)
     shape = drive_config_shape(config_text)
     result = {
         "status": "FAIL", "scope": "one_generated_tiny_file",
@@ -292,6 +314,7 @@ def drive_roundtrip(config_text, private_root):
         "cleanup_required": False, "cleanup_success": False,
         "sharing": "sharing_permissions_not_modified_or_verified",
         "config_shape": shape,
+        "config_text_wrapper_normalized": normalized,
         "long_term_authorization_readiness_verified": False,
     }
     if not shutil.which("rclone"):

@@ -461,6 +461,34 @@ def extraction_error_reason(stderr):
     return next((reason for reason, markers in groups if any(m in message for m in markers)), None)
 
 
+def register_owned_process(process, kind):
+    """Allow the capture wrapper to clean groups if this recorder is hard-killed."""
+    registry = os.environ.get("RECORDER_PROCESS_REGISTRY", "")
+    if not registry or os.name != "posix":
+        return
+    directory = os.path.abspath(registry)
+    if not os.path.isdir(directory) or os.path.islink(directory):
+        raise RuntimeError("invalid_owned_process_registry")
+    pid = process.pid
+    if not isinstance(pid, int) or pid <= 1 or os.getpgid(pid) != pid:
+        raise RuntimeError("capture_process_group_not_owned")
+    with open(f"/proc/{pid}/stat", encoding="utf-8") as stat_file:
+        fields = stat_file.read().rsplit(")", 1)[1].split()
+    ticks = int(fields[19])  # /proc stat field22; comm may contain spaces/parentheses.
+    fd, temporary = tempfile.mkstemp(prefix=".register-", dir=directory)
+    destination = os.path.join(directory, f"{pid}-{ticks}.json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as target:
+            json.dump({"pid": pid, "proc_start_ticks": ticks, "kind": kind}, target)
+        os.replace(temporary, destination)
+        process._recorder_registry_path = destination
+    finally:
+        try:
+            os.remove(temporary)
+        except FileNotFoundError:
+            pass
+
+
 def bounded_metadata_run(command, *, timeout):
     """Reap yt-dlp and its JS descendants before its private cookie jar is removed."""
     process = subprocess.Popen(command, text=True, encoding="utf-8", errors="replace",
@@ -468,6 +496,7 @@ def bounded_metadata_run(command, *, timeout):
                                start_new_session=(os.name == "posix"))
     process._recorder_owned_group = (os.name == "posix")
     try:
+        register_owned_process(process, "metadata")
         stdout, stderr = process.communicate(timeout=timeout)
         return subprocess.CompletedProcess(command, process.returncode, stdout, stderr)
     finally:
@@ -710,13 +739,20 @@ def stop_proc(process):
     owned_group = bool(getattr(process, "_recorder_owned_group", False))
     pid = getattr(process, "pid", None)
     owned_group = owned_group and isinstance(pid, int) and pid > 1 and os.name == "posix"
+    group_cleanup_done = False
     def send(signum):
+        nonlocal group_cleanup_done
         try:
             if owned_group:
                 os.killpg(pid, signum)
+                if signum == signal.SIGKILL:
+                    group_cleanup_done = True
             elif process.poll() is None:
                 process.send_signal(signum)
-        except (ProcessLookupError, OSError):
+        except ProcessLookupError:
+            if owned_group:
+                group_cleanup_done = True
+        except OSError:
             pass
     try:
         if process.poll() is None:
@@ -741,6 +777,12 @@ def stop_proc(process):
             process.wait(timeout=2)
         except Exception:
             pass
+        registry_path = getattr(process, "_recorder_registry_path", None)
+        if owned_group and group_cleanup_done and isinstance(registry_path, str):
+            try:
+                os.remove(registry_path)
+            except FileNotFoundError:
+                pass
 
 
 def sigterm_handler(signum, frame):
@@ -961,9 +1003,8 @@ def build_final_file(active):
             text=True, capture_output=True, timeout=180,
         )
         if result.returncode == 0 and os.path.isfile(final_path) and os.path.getsize(final_path) >= MIN_SAVE_BYTES:
-            for path in chunks:
-                try: os.remove(path)
-                except Exception: pass
+            # A successful mux/size check is not a verified remote receipt.
+            # Preserve every source chunk for independent recovery/publication.
             try: os.remove(list_path)
             except Exception: pass
             return final_path
@@ -1027,9 +1068,23 @@ def classify_output(output_state):
 
 
 def make_download_cmd(active, chunk_path, client, cookie_path=None):
+    transport = os.getenv("CAPTURE_TRANSPORT", "native").strip().lower()
+    if USE_COOKIES and not cookie_path:
+        raise RuntimeError("private_cookie_path_required")
+    if transport == "streamlink_hls":
+        helper = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hls_capture.py")
+        if not os.path.isfile(helper):
+            raise RuntimeError("hls_capture_helper_missing")
+        command = [sys.executable, helper, "--url", active["live_url"], "--output", chunk_path,
+                   "--format", FORMAT_SELECTOR, "--client", client_label(client)]
+        if cookie_path:
+            command += ["--cookies", cookie_path]
+        return command
+    if transport != "native":
+        raise RuntimeError("unsupported_capture_transport")
     command = [
         sys.executable, "-m", "yt_dlp", "--no-config", "--newline", "--no-warnings",
-        "--restrict-filenames", "--no-part", "--no-playlist", "--no-live-from-start",
+        "--socket-timeout", "15", "--restrict-filenames", "--no-part", "--no-playlist", "--no-live-from-start",
         "--print", "before_dl:chosen=%(format_id)s | %(resolution)s | tbr=%(tbr)s | protocol=%(protocol)s",
         "--retries", "20", "--extractor-retries", "20", "--file-access-retries", "20",
         "--fragment-retries", "infinite", "--retry-sleep", "http:2", "--retry-sleep", "fragment:1",
@@ -1120,6 +1175,8 @@ def drain_latest_candidate(live_queue):
 
 
 def run_download_attempt(active, session_end, client, live_queue):
+    if AUTH_BLOCKED.is_set():
+        return False, LAST_FATAL_ERROR or "auth_blocked", None
     with private_cookie_copy() as cookie_path:
         return _run_download_attempt(active, session_end, client, live_queue, cookie_path)
 
@@ -1135,6 +1192,7 @@ def _run_download_attempt(active, session_end, client, live_queue, cookie_path):
     left = max(0, session_end - time.time())
     log(f"[{hms(left)} left] download_started | chunk={index:04d} | client={client_label(client)}")
 
+    process = None
     try:
         process = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -1142,8 +1200,11 @@ def _run_download_attempt(active, session_end, client, live_queue, cookie_path):
             start_new_session=(os.name == "posix"),
         )
         process._recorder_owned_group = (os.name == "posix")
+        register_owned_process(process, "capture")
     except Exception as exc:
-        log_raw("download_launch_error", exc)
+        if process is not None:
+            stop_proc(process)
+        log_raw("download_launch_error", type(exc).__name__)
         active["recording_path"] = None
         save_active_state(active)
         if "record_fatal_error" in globals() and callable(globals()["record_fatal_error"]):

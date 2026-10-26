@@ -189,7 +189,32 @@ class RecorderFixTests(unittest.TestCase):
             cmd = r.make_download_cmd({"live_url": "https://example.invalid"}, "x.ts", None, path)
             self.assertEqual(cmd[cmd.index("--cookies") + 1], path)
             self.assertIn("--js-runtimes", cmd)
+            self.assertEqual(cmd[cmd.index("--socket-timeout") + 1], "15")
             self.assertNotIn(str(self.source), cmd)
+
+    def test_optional_streamlink_command_uses_owned_private_cookie(self):
+        r.USE_COOKIES = True
+        with patch.dict(os.environ, {"CAPTURE_TRANSPORT": "streamlink_hls"}), patch.object(r.os.path, "isfile", return_value=True):
+            with r.private_cookie_copy() as cookie:
+                cmd = r.make_download_cmd({"live_url": "https://www.youtube.com/watch?v=aaaaaaaaaaa"}, "chunk.ts", None, cookie)
+                self.assertTrue(cmd[1].endswith("hls_capture.py"))
+                self.assertEqual(cmd[cmd.index("--client") + 1], "default")
+                self.assertEqual(cmd[cmd.index("--cookies") + 1], cookie)
+                self.assertEqual(cmd[cmd.index("--format") + 1], r.FORMAT_SELECTOR)
+                self.assertNotIn(str(self.source), cmd)
+
+    def test_optional_transport_requires_its_packaged_helper(self):
+        with patch.dict(os.environ, {"CAPTURE_TRANSPORT": "streamlink_hls"}), patch.object(r.os.path, "isfile", return_value=False):
+            with self.assertRaisesRegex(RuntimeError, "hls_capture_helper_missing"):
+                r.make_download_cmd({"live_url": "https://example.invalid"}, "chunk.ts", None)
+
+    def test_blocked_account_never_launches_native_or_helper_capture(self):
+        r.record_fatal_error("botcheck")
+        with patch.object(r, "_run_download_attempt") as launch:
+            for transport in ["native", "streamlink_hls"]:
+                with patch.dict(os.environ, {"CAPTURE_TRANSPORT": transport}):
+                    self.assertEqual(r.run_download_attempt({}, 0, None, None), (False, "botcheck", None))
+        launch.assert_not_called()
 
     def test_probe_command_has_runtime_and_no_ignore_no_formats(self):
         _, call = self.run_json({"id": "aaaaaaaaaaa"})
@@ -247,6 +272,40 @@ class RecorderFixTests(unittest.TestCase):
         self.assertTrue(process._recorder_owned_group)
         stop.assert_called_once_with(process)
 
+    def test_process_registry_tracks_own_group_and_cleans_after_stop(self):
+        registry = Path(self.tmp.name) / "registry"
+        registry.mkdir(mode=0o700)
+        process = subprocess.Popen([r.sys.executable, "-c", "import time;time.sleep(60)"], start_new_session=True,
+                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        process._recorder_owned_group = True
+        try:
+            with patch.dict(os.environ, {"RECORDER_PROCESS_REGISTRY": str(registry)}):
+                r.register_owned_process(process, "capture")
+            entries = list(registry.glob("*.json"))
+            self.assertEqual(len(entries), 1)
+            data = json.loads(entries[0].read_text())
+            self.assertEqual(data["pid"], process.pid)
+            self.assertEqual(data["kind"], "capture")
+            self.assertIs(type(data["proc_start_ticks"]), int)
+            self.assertEqual(stat.S_IMODE(entries[0].stat().st_mode), 0o600)
+            self.assertEqual(entries[0].name, f'{process.pid}-{data["proc_start_ticks"]}.json')
+        finally:
+            r.stop_proc(process)
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(list(registry.glob("*.json")))
+
+    def test_registry_entry_is_retained_if_group_kill_is_denied(self):
+        registry = Path(self.tmp.name) / "still-owned.json"
+        registry.write_text("{}")
+        process = unittest.mock.Mock()
+        process.pid = 45678
+        process._recorder_owned_group = True
+        process._recorder_registry_path = str(registry)
+        process.poll.return_value = 0
+        with patch.object(r.os, "killpg", side_effect=PermissionError()):
+            r.stop_proc(process)
+        self.assertTrue(registry.exists())
+
     def test_actual_metadata_process_group_is_reaped_on_timeout(self):
         import time
         pid_file = Path(self.tmp.name) / "descendant.pid"
@@ -287,6 +346,36 @@ class RecorderFixTests(unittest.TestCase):
             r.stop_proc(process)
         kill.assert_not_called()
         process.send_signal.assert_called_once_with(r.signal.SIGINT)
+
+    def concat_fixture(self):
+        directory = Path(self.tmp.name) / "chunks"
+        directory.mkdir()
+        first, second = directory / "video_chunk0001.ts", directory / "video_chunk0002.ts"
+        first.write_bytes(b"A" * 3760)
+        second.write_bytes(b"B" * 3760)
+        return {"chunks": [str(first), str(second)], "chunk_dir": str(directory),
+                "chunk_index": 3, "final_ts": str(Path(self.tmp.name) / "combined.ts")}, first, second
+
+    def test_successful_concat_preserves_all_unverified_source_chunks(self):
+        active, first, second = self.concat_fixture()
+        def concat(cmd, **kwargs):
+            Path(cmd[-1]).write_bytes(first.read_bytes() + second.read_bytes())
+            return subprocess.CompletedProcess(cmd, 0, "", "")
+        free = first.stat().st_size + second.stat().st_size + r.MIN_FREE_BYTES + 1
+        with patch.object(r.shutil, "which", return_value="/test/ffmpeg"), patch.object(r.shutil, "disk_usage", return_value=type("Disk", (), {"free": free})()), patch.object(r.subprocess, "run", side_effect=concat):
+            result = r.build_final_file(active)
+        self.assertEqual(result, active["final_ts"])
+        self.assertEqual(first.read_bytes(), b"A" * 3760)
+        self.assertEqual(second.read_bytes(), b"B" * 3760)
+
+    def test_low_disk_skips_concat_and_preserves_sources(self):
+        active, first, second = self.concat_fixture()
+        with patch.object(r.shutil, "which", return_value="/test/ffmpeg"), patch.object(r.shutil, "disk_usage", return_value=type("Disk", (), {"free": 1})()), patch.object(r.subprocess, "run") as concat:
+            self.assertIsNone(r.build_final_file(active))
+        concat.assert_not_called()
+        self.assertEqual(first.read_bytes(), b"A" * 3760)
+        self.assertEqual(second.read_bytes(), b"B" * 3760)
+        self.assertFalse(Path(active["final_ts"]).exists())
 
     def test_output_does_not_print_signed_media_url(self):
         stream = io.StringIO("[download] https://example.invalid/signed?token=DUMMY\nERROR: Sign in to confirm you're not a bot\n")

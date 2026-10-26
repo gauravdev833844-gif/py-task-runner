@@ -155,6 +155,20 @@ def md5_file(path):
     return digest.hexdigest()
 
 
+def remote_md5(remote):
+    """rclone hash keys vary in casing; accept only one unambiguous MD5 value."""
+    hashes = remote.get('Hashes') if isinstance(remote, dict) else None
+    if not isinstance(hashes, dict):
+        return None
+    values = []
+    for key, value in hashes.items():
+        if isinstance(key, str) and key.casefold() == 'md5':
+            if not isinstance(value, str) or not re.fullmatch(r'[0-9a-fA-F]{32}', value):
+                return None
+            values.append(value.lower())
+    return values[0] if values and len(set(values)) == 1 else None
+
+
 def drive(command, config, timeout=45):
     code, out, err = run(['rclone', '--config', str(config), '--retries', '1',
                           '--low-level-retries', '1', '--contimeout', '10s', '--timeout', '30s',
@@ -283,7 +297,7 @@ def execute(output):
             drive(['copyto', str(media), destination], config, timeout=180)
             remote = json.loads(drive(['lsjson', destination, '--stat', '--hash'], config))
             identity = remote.get('ID')
-            remote_hash = (remote.get('Hashes') or {}).get('MD5', '').lower()
+            remote_hash = remote_md5(remote)
             if remote.get('Size') != report['media_bytes'] or remote_hash != digest:
                 raise Failure('DRIVE_SIZE_OR_HASH_MISMATCH')
             owner_only(config, identity)

@@ -88,14 +88,14 @@ jobs:
               sudo timeout --kill-after=10s 90s apt-get install -y --no-install-recommends -o Acquire::Retries=0 "${missing[@]}"
             fi
           fi
-          timeout --kill-after=10s 120s python -m pip install --disable-pip-version-check --no-input -q 'yt-dlp[default,curl-cffi]==2026.10.21'
+          timeout --kill-after=10s 120s python -m pip install --disable-pip-version-check --no-input -q 'yt-dlp[default,curl-cffi]==2026.10.21' 'streamlink==8.6.2'
           python -m yt_dlp --version
           node --version
           rclone version
           df -h .
       - name: Capture with verified Drive safety clips
         id: capture
-        timeout-minutes: 190
+        timeout-minutes: 195
         continue-on-error: true
         env:
           CHANNEL_HANDLE: ${{ matrix.channel.handle }}
@@ -103,9 +103,12 @@ jobs:
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
           GDRIVE_REMOTE: ${{ vars.GDRIVE_REMOTE || 'drive:YouTubeRecordings' }}
+          RECORDING_SESSION_ID: ${{ needs.prepare.outputs.session_id }}
+          RECORDING_SHIFT_INDEX: ${{ inputs.shift_index || 0 }}
           SESSION_DEADLINE: ${{ needs.prepare.outputs.window_deadline }}
           OUT_DIR: streams
-          FORMAT_SELECTOR: best[height<=720][vcodec!=none][acodec!=none]/best[height<=720]
+          FORMAT_SELECTOR: best[height<=720][protocol*=m3u8][vcodec!=none][acodec!=none]
+          CAPTURE_TRANSPORT: streamlink_hls
           SKIP_DEPENDENCY_INSTALL: 'true'
           SAFETY_CLIP_SECONDS: '300'
           SAFETY_CLIP_OVERLAP: '15'
@@ -135,6 +138,8 @@ jobs:
         env:
           RCLONE_CONFIG_TEXT: ${{ secrets.RCLONE_CONFIG }}
           GDRIVE_REMOTE: ${{ vars.GDRIVE_REMOTE || 'drive:YouTubeRecordings' }}
+          RECORDING_SESSION_ID: ${{ needs.prepare.outputs.session_id }}
+          RECORDING_SHIFT_INDEX: ${{ inputs.shift_index || 0 }}
         run: python run_upload.py --root streams --report upload-report.json --budget 1800 --allow-confirmed-offline
       - name: Save sanitized recording summaries and verified receipts
         if: always()

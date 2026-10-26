@@ -5,6 +5,10 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
+import time
+import signal
+import sys
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -35,7 +39,7 @@ class DrivePipelineTests(unittest.TestCase):
         return SimpleNamespace(returncode=code, stdout=json.dumps(data) if data is not None else '', stderr=error)
 
     def test_existing_matching_object_skips_copy(self):
-        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.subprocess.run', return_value=self.result(data=self.good)) as run:
+        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.run_provider', return_value=self.result(data=self.good)) as run:
             receipt = self.publisher.google_drive(self.source, self.metadata)
         self.assertTrue(receipt['reconciled_existing'])
         self.assertEqual(run.call_count, 1)
@@ -44,7 +48,7 @@ class DrivePipelineTests(unittest.TestCase):
 
     def test_lost_ack_reconciles_without_second_copy(self):
         outcomes = [self.result(4, error='object not found'), self.result(1, error='connection closed after send'), self.result(data=self.good)]
-        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.subprocess.run', side_effect=outcomes) as run:
+        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.run_provider', side_effect=outcomes) as run:
             receipt = self.publisher.google_drive(self.source, self.metadata)
         self.assertTrue(receipt['reconciled_after_ambiguous_ack'])
         self.assertEqual(sum('copyto' in call.args[0] for call in run.call_args_list), 1)
@@ -52,19 +56,19 @@ class DrivePipelineTests(unittest.TestCase):
 
     def test_copy_timeout_reconciles(self):
         outcomes = [self.result(4, error='object not found'), subprocess.TimeoutExpired('rclone', 1), self.result(data=self.good)]
-        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.subprocess.run', side_effect=outcomes):
+        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.run_provider', side_effect=outcomes):
             receipt = self.publisher.google_drive(self.source, self.metadata)
         self.assertTrue(receipt['reconciled_after_ambiguous_ack'])
 
     def test_precheck_access_denial_never_attempts_upload(self):
-        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.subprocess.run', return_value=self.result(1, error='HTTP403 forbidden')) as run:
+        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.run_provider', return_value=self.result(1, error='HTTP403 forbidden')) as run:
             with self.assertRaises(publish.PublishError):
                 self.publisher.google_drive(self.source, self.metadata)
         self.assertEqual(run.call_count, 1)
         self.assertNotIn('copyto', run.call_args.args[0])
 
     def test_existing_mismatch_is_not_overwritten(self):
-        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.subprocess.run', return_value=self.result(data={'Size': 0, 'Hashes': {}})) as run:
+        with patch('publish_recordings.shutil.which', return_value='/usr/bin/rclone'), patch('publish_recordings.run_provider', return_value=self.result(data={'Size': 0, 'Hashes': {}})) as run:
             with self.assertRaisesRegex(publish.PublishError, 'existing_object_mismatch'):
                 self.publisher.google_drive(self.source, self.metadata)
         self.assertEqual(run.call_count, 1)
@@ -179,6 +183,53 @@ class DrivePipelineTests(unittest.TestCase):
             self.assertEqual(publish.normalize_rclone_config(normalized),normalized)
         for invalid in ['', 'junk', '[drive]\ntype=drive', '[drive]\ntype=drive\ntoken={"access_token":"only"}', '[other]\ntype=drive\ntoken={"refresh_token":"x"}']:
             with self.assertRaises(publish.PublishError):publish.normalize_rclone_config(invalid)
+
+    def test_registered_owned_process_group_killed_and_pid_mismatch_ignored(self):
+        process=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],start_new_session=True)
+        registry=self.root/'owned';registry.mkdir(mode=0o700)
+        try:
+            ticks=capture.process_start_ticks(process.pid)
+            wrong=registry/f'{process.pid}-{ticks+1}.json'
+            wrong.write_text(json.dumps({'pid':process.pid,'proc_start_ticks':ticks+1,'kind':'capture'}));wrong.chmod(0o600)
+            capture.kill_registered_groups(registry)
+            self.assertIsNone(process.poll())
+            good=registry/f'{process.pid}-{ticks}.json'
+            good.write_text(json.dumps({'pid':process.pid,'proc_start_ticks':ticks,'kind':'capture'}));good.chmod(0o600)
+            capture.kill_registered_groups(registry)
+            self.assertEqual(process.wait(timeout=5),-signal.SIGKILL)
+        finally:
+            if process.poll()is None:os.killpg(process.pid,signal.SIGKILL);process.wait(timeout=5)
+
+    def test_capture_soft_stop_signals_only_its_owned_group(self):
+        process=subprocess.Popen([sys.executable,'-c','import time; time.sleep(30)'],start_new_session=True,stderr=subprocess.DEVNULL)
+        try:
+            capture.stop_child(process)
+            self.assertIsNotNone(process.poll())
+        finally:
+            if process.poll()is None:os.killpg(process.pid,signal.SIGKILL);process.wait(timeout=5)
+
+    def test_provider_cancellation_joins_real_child_and_blocks_new_uploads(self):
+        publish._provider_cancelled.clear()
+        outcome=[]
+        def run():
+            outcome.append(publish.run_provider([sys.executable,'-c','import time; time.sleep(30)'],timeout=35))
+        worker=threading.Thread(target=run)
+        worker.start()
+        try:
+            deadline=time.monotonic()+5
+            while time.monotonic()<deadline:
+                with publish._provider_lock:registered=bool(publish._provider_processes)
+                if registered:break
+                time.sleep(.01)
+            self.assertTrue(registered)
+            publish.cancel_provider_processes()
+            worker.join(timeout=5)
+            self.assertFalse(worker.is_alive())
+            self.assertEqual(outcome[0].returncode,-signal.SIGKILL)
+            with self.assertRaisesRegex(publish.PublishError,'shutdown'):
+                publish.run_provider([sys.executable,'-c','pass'])
+        finally:
+            publish.cancel_provider_processes();worker.join(timeout=5);publish._provider_cancelled.clear()
 
     @unittest.skipUnless(shutil.which('ffmpeg') and shutil.which('ffprobe'), 'ffmpeg unavailable')
     def test_real_ffmpeg_finalized_safety_clip_preserves_original(self):

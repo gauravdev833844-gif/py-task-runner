@@ -1,12 +1,40 @@
-name: Test Google Drive upload - bounded verified roundtrip
+name: Verify repaired recorder and Google Drive
 on:
   workflow_dispatch:
 permissions:
   contents: read
 concurrency:
-  group: urgent-drive-check-${{ github.repository }}
+  group: urgent-validation-${{ github.repository }}
   cancel-in-progress: false
 jobs:
+  offline-components:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned test dependency and local media tools
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null || ! command -v ffprobe >/dev/null; then
+            if ! sudo timeout --kill-after=10s 60s apt-get install -y --no-install-recommends -o Acquire::Retries=0 ffmpeg; then
+              sudo timeout --kill-after=10s 45s apt-get -o Acquire::Retries=0 update -qq
+              sudo timeout --kill-after=10s 60s apt-get install -y --no-install-recommends -o Acquire::Retries=0 ffmpeg
+            fi
+          fi
+          timeout --kill-after=5s 90s python -m pip install --disable-pip-version-check -q 'yt-dlp[default,curl-cffi]==2026.10.21' 'streamlink==8.6.2'
+      - name: Verify detector, credential isolation, media validation and Drive reconciliation
+        timeout-minutes: 5
+        run: |
+          set -euo pipefail
+          python -m unittest -v test_detection_fix test_diagnostic_canary test_drive_pipeline test_hls_transport
+          python -m py_compile recorder.py diagnostic_canary.py capture_session.py rolling_backup.py publish_recordings.py run_upload.py chain_shift.py shift_plan.py hls_capture.py probe_health.py
   drive:
     runs-on: ubuntu-latest
     timeout-minutes: 12

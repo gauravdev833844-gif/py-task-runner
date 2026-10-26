@@ -63,7 +63,7 @@ class CanaryTests(unittest.TestCase):
         with patch.object(canary,'run',side_effect=fake_run),patch.object(canary,'drive_folder',return_value='folder123'):
             self.assertEqual(canary.execute(self.root),2)
         self.assertFalse(self.report()['capture_test_passed'])
-    def run_mock_capture(self,matching=True):
+    def run_mock_capture(self,matching=True,hash_key="md5"):
         def fake_run(command,**kwargs):
             if '-m' in command:return 0,json.dumps(metadata()).encode(),b''
             if command[0]=='ffmpeg':Path(command[-1]).write_bytes(b'valid-media-placeholder'*100)
@@ -72,7 +72,7 @@ class CanaryTests(unittest.TestCase):
             if command[0]=='copyto':return b''
             if command[0]=='lsjson':
                 media=self.root/'captured.ts'
-                return json.dumps({'ID':'file12345','Size':media.stat().st_size,'Hashes':{'MD5':canary.md5_file(media)if matching else 'bad'}}).encode()
+                return json.dumps({'ID':'file12345','Size':media.stat().st_size,'Hashes':{hash_key:canary.md5_file(media)if matching else 'bad'}}).encode()
             return b''
         with patch.object(canary,'run',side_effect=fake_run),patch.object(canary,'drive_folder',return_value='folder123'),patch.object(canary,'drive',side_effect=fake_drive),patch.object(canary,'owner_only')as privacy,patch.object(canary,'inspect_media',return_value={'audio_present':True,'video_present':True}):
             code=canary.execute(self.root)
@@ -83,6 +83,18 @@ class CanaryTests(unittest.TestCase):
         data=self.report();self.assertTrue(data['capture_test_passed']);self.assertTrue(data['drive_test_passed'])
         self.assertTrue(data['drive_receipt']['md5_match']);self.assertTrue(data['media_preserved_locally'])
         self.assertFalse(data['large_6gb_tested']);self.assertFalse(data['shift_handover_tested'])
+    def test_uppercase_remote_hash_key_also_verifies_receipt(self):
+        code,privacy=self.run_mock_capture(hash_key='MD5')
+        self.assertEqual(code,0)
+        self.assertTrue(self.report()['drive_receipt']['md5_match'])
+    def test_remote_md5_requires_valid_unambiguous_digest(self):
+        good='a1'*16
+        for key in ['md5','MD5','Md5']:
+            self.assertEqual(canary.remote_md5({'Hashes':{key:good.upper()}}),good)
+        for value in [None,0,'bad',[],good+'0']:
+            self.assertIsNone(canary.remote_md5({'Hashes':{'md5':value}}))
+        self.assertIsNone(canary.remote_md5({'Hashes':{'md5':good,'MD5':'b2'*16}}))
+        self.assertIsNone(canary.remote_md5({'Hashes':{'sha1':good}}))
     def test_hash_mismatch_fails_and_preserves_media(self):
         code,privacy=self.run_mock_capture(matching=False)
         self.assertEqual(code,2);privacy.assert_not_called()

@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import tempfile
@@ -47,18 +48,54 @@ def save_guard_report(root, reason):
     path.chmod(0o600)
 
 
-def stop_child(child):
+def process_start_ticks(pid):
+    try:
+        # comm may contain spaces or parentheses; fields after its final ')'
+        # begin at field3. Linux starttime is field22 (offset19 here).
+        fields=Path('/proc',str(pid),'stat').read_text().rsplit(')',1)[1].split()
+        return int(fields[19])
+    except (OSError,ValueError,IndexError):return None
+
+
+def kill_registered_groups(directory):
+    """Kill only wrapper-owned registered groups whose PID identity still matches."""
+    if not directory:return
+    for path in Path(directory).glob('*.json'):
+        try:
+            info=path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_mode&0o077:continue
+            if info.st_size>4096:continue
+            entry=json.loads(path.read_text())
+            pid,ticks=entry.get('pid'),entry.get('proc_start_ticks')
+            if type(pid)is not int or pid<=1 or type(ticks)is not int or ticks<=0:continue
+            if entry.get('kind')not in {'metadata','capture'} or path.name!=f'{pid}-{ticks}.json':continue
+            if process_start_ticks(pid)!=ticks or os.getpgid(pid)!=pid:continue
+            os.killpg(pid,signal.SIGKILL)
+        except (OSError,ValueError,TypeError,AttributeError):continue
+
+
+def signal_capture_group(child, signum):
+    try:
+        if type(child.pid)is int and child.pid>1 and os.getpgid(child.pid)==child.pid:
+            os.killpg(child.pid,signum)
+        else:child.send_signal(signum)
+    except ProcessLookupError:pass
+
+
+def stop_child(child, registry=None):
     if child.poll() is not None:
         return
-    child.send_signal(signal.SIGINT)
+    signal_capture_group(child, signal.SIGINT)
     try:
         child.wait(timeout=30)
     except subprocess.TimeoutExpired:
-        child.terminate()
+        kill_registered_groups(registry)
+        signal_capture_group(child, signal.SIGTERM)
         try:
             child.wait(timeout=10)
         except subprocess.TimeoutExpired:
-            child.kill()
+            kill_registered_groups(registry)
+            signal_capture_group(child, signal.SIGKILL)
             child.wait(timeout=5)
 
 
@@ -69,6 +106,8 @@ def main():
     value = os.environ.pop('RCLONE_CONFIG_TEXT', '')
     done = threading.Event()
     with tempfile.TemporaryDirectory(prefix='private-capture-config-') as directory:
+        registry=Path(directory)/'owned-processes'
+        registry.mkdir(mode=0o700)
         config = os.environ.get('RCLONE_CONFIG')
         if value:
             try:value=normalize_rclone_config(value)
@@ -101,17 +140,18 @@ def main():
         for key in ('GH_TOKEN', 'GITHUB_TOKEN', 'GOFILE_TOKEN', 'GOFILE_FOLDER_ID',
                     'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHAT_ID', 'RCLONE_CONFIG'):
             child_env.pop(key, None)
-        child = subprocess.Popen([sys.executable, 'recorder.py'], env=child_env)
+        child_env['RECORDER_PROCESS_REGISTRY']=str(registry)
+        child = subprocess.Popen([sys.executable, 'recorder.py'], env=child_env, start_new_session=True)
         state = {'reason': None}
 
         def guard():
             while not done.wait(2):
-                current = ('capture_backup_worker_stopped' if not worker.is_alive() else
-                           pressure_reason(root, archive, local_limit=local_limit, reserve=reserve))
+                current = (state['reason'] or ('capture_backup_worker_stopped' if not worker.is_alive() else
+                           pressure_reason(root, archive, local_limit=local_limit, reserve=reserve)))
                 if current:
                     state['reason'] = current
                     save_guard_report(root, current)
-                    stop_child(child)
+                    stop_child(child, registry)
                     return
 
         monitor = threading.Thread(target=guard, daemon=True)
@@ -120,7 +160,7 @@ def main():
         def stop(signum, frame):
             state['reason'] = 'capture_cancelled'
             if child.poll() is None:
-                child.send_signal(signal.SIGINT)
+                signal_capture_group(child, signal.SIGINT)
 
         signal.signal(signal.SIGTERM, stop)
         signal.signal(signal.SIGINT, stop)
@@ -129,9 +169,14 @@ def main():
         finally:
             done.set()
             monitor.join(timeout=50)
-            worker.join(timeout=360)
+            # Recorder may have been hard-killed or exited while a registered
+            # downloader still exists. Identity checks prevent PID-reuse kills.
+            kill_registered_groups(registry)
+            worker.join(timeout=540)
             archive.stop.set()
-            worker.join(timeout=5)
+            worker.join(timeout=190)
+            if worker.is_alive():
+                state['reason']=state['reason'] or 'backup_shutdown_deadline_exceeded'
             save_guard_report(root, state['reason'])
         return 3 if state['reason'] else returncode
 

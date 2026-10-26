@@ -25,10 +25,10 @@ jobs:
               sudo timeout --kill-after=10s 60s apt-get install -y --no-install-recommends -o Acquire::Retries=0 ffmpeg
             fi
           fi
-          timeout --kill-after=5s 90s python -m pip install --disable-pip-version-check -q 'yt-dlp[default,curl-cffi]==2026.10.21'
+          timeout --kill-after=5s 90s python -m pip install --disable-pip-version-check -q 'yt-dlp[default,curl-cffi]==2026.10.21' 'streamlink==8.6.2'
       - name: Verify detector, credential isolation, media validation and Drive reconciliation
         timeout-minutes: 5
         run: |
           set -euo pipefail
-          python -m unittest -v test_detection_fix test_diagnostic_canary test_drive_pipeline
-          python -m py_compile recorder.py diagnostic_canary.py capture_session.py rolling_backup.py publish_recordings.py run_upload.py chain_shift.py shift_plan.py
+          python -m unittest -v test_detection_fix test_diagnostic_canary test_drive_pipeline test_hls_transport
+          python -m py_compile recorder.py diagnostic_canary.py capture_session.py rolling_backup.py publish_recordings.py run_upload.py chain_shift.py shift_plan.py hls_capture.py probe_health.py

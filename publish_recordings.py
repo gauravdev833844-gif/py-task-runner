@@ -10,7 +10,9 @@ import re
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
+import signal
 from urllib.parse import quote, urlparse
 
 RELEASE_LIMIT = 2_000_000_000  # Strictly below GitHub's 2 GiB ceiling.
@@ -19,6 +21,42 @@ GOFILE_ENDPOINT = 'https://upload.gofile.io/uploadfile'
 
 class PublishError(Exception):
     pass
+
+
+_provider_lock=threading.Lock()
+_provider_processes=set()
+_provider_cancelled=threading.Event()
+
+
+def run_provider(command, *, capture_output=True, text=False, timeout=30, **kwargs):
+    """Own provider process groups so shutdown cannot orphan a live upload."""
+    if _provider_cancelled.is_set():raise PublishError('provider_shutdown_requested')
+    process=subprocess.Popen(command,stdin=subprocess.DEVNULL,stdout=subprocess.PIPE,
+                             stderr=subprocess.PIPE,text=text,start_new_session=True,**kwargs)
+    with _provider_lock:_provider_processes.add(process)
+    try:
+        if _provider_cancelled.is_set() and process.poll() is None:
+            os.killpg(process.pid,signal.SIGKILL)
+        try:
+            stdout,stderr=process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            try:os.killpg(process.pid,signal.SIGKILL)
+            except ProcessLookupError:pass
+            stdout,stderr=process.communicate(timeout=5)
+            raise subprocess.TimeoutExpired(command,timeout,output=stdout,stderr=stderr)
+        return subprocess.CompletedProcess(command,process.returncode,stdout,stderr)
+    finally:
+        with _provider_lock:_provider_processes.discard(process)
+
+
+def cancel_provider_processes():
+    _provider_cancelled.set()
+    with _provider_lock:processes=list(_provider_processes)
+    for process in processes:
+        try:
+            if process.poll() is None and os.getpgid(process.pid)==process.pid:
+                os.killpg(process.pid,signal.SIGKILL)
+        except ProcessLookupError:pass
 
 
 def normalize_rclone_config(value):
@@ -201,7 +239,7 @@ class Publisher:
         remote = session_path+'/shift-'+window+'/'+self.category+'/'+metadata['sha256'][:20]+'-'+name
         base = ['rclone', '--config', self.drive_config]
         def remote_info(allow_missing=False):
-            info = subprocess.run(base + ['lsjson', remote, '--stat', '--hash',
+            info = run_provider(base + ['lsjson', remote, '--stat', '--hash',
                                          '--retries', '1', '--low-level-retries', '1',
                                          '--contimeout', '10s', '--timeout', '20s'],
                                   capture_output=True, text=True, timeout=min(30, self.remaining()))
@@ -230,7 +268,7 @@ class Publisher:
         copy_timed_out = False
         if not reconciled:
             try:
-                copied = subprocess.run(base + ['copyto', str(source), remote, '--checksum',
+                copied = run_provider(base + ['copyto', str(source), remote, '--checksum',
                                         '--retries', '1', '--low-level-retries', '1',
                                         '--contimeout', '15s', '--timeout', '60s',
                                         '--drive-chunk-size', '32M', '--transfers', '1', '--checkers', '1'],
@@ -266,7 +304,7 @@ class Publisher:
                 if not remote.startswith(self.drive_prefix.rstrip('/')+'/'):
                     continue
                 try:
-                    info=subprocess.run(['rclone','--config',self.drive_config,'lsjson',remote,'--stat','--hash'],
+                    info=run_provider(['rclone','--config',self.drive_config,'lsjson',remote,'--stat','--hash'],
                                         capture_output=True,text=True,timeout=min(30,self.remaining()))
                     data=json.loads(info.stdout)
                     hashes={k.lower():str(v).lower() for k,v in data.get('Hashes',{}).items()}
@@ -286,13 +324,13 @@ class Publisher:
                 if receipt.get('provider')!='google_drive' or not path or path in attempted:continue
                 attempted.add(path)
                 try:
-                    result=subprocess.run(['rclone','--config',self.drive_config,'lsjson',path,'--stat'],
+                    result=run_provider(['rclone','--config',self.drive_config,'lsjson',path,'--stat'],
                                           capture_output=True,text=True,timeout=min(20,self.remaining()))
                     data=json.loads(result.stdout);folder=data.get('ID','')
                     # Older rclone synthesizes --stat directory entries without IDs.
                     if not folder:
                         parent,name=path.rsplit('/',1)
-                        listing=subprocess.run(['rclone','--config',self.drive_config,'lsjson',parent,'--dirs-only','--max-depth','1'],
+                        listing=run_provider(['rclone','--config',self.drive_config,'lsjson',parent,'--dirs-only','--max-depth','1'],
                                                capture_output=True,text=True,timeout=min(20,self.remaining()))
                         entries=json.loads(listing.stdout)
                         data=next((entry for entry in entries if entry.get('Name')==name and entry.get('IsDir')), {}) if listing.returncode==0 else {}

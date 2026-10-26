@@ -13,7 +13,7 @@ import subprocess
 import threading
 import time
 
-from publish_recordings import Publisher, PublishError, fingerprints
+from publish_recordings import Publisher, PublishError, fingerprints, run_provider, cancel_provider_processes
 
 
 def atomic_json(path, value):
@@ -62,6 +62,7 @@ class SafetyArchive:
         self.config=config;self.stop=threading.Event();self.lock=threading.Lock()
         self.sources={};self.clips=[];self.last_error=None;self.upload=uploader or self.drive_upload
         self.capture_pressure_reason = None
+        self.upload_worker = None
         try:
             previous=json.loads(self.report.read_text())
             for clip in previous.get('clips',[]):
@@ -143,9 +144,9 @@ class SafetyArchive:
         with self.lock:snapshot.write_bytes(self.report.read_bytes())
         metadata=fingerprints(snapshot)
         base=['rclone','--config',self.config]
-        copied=subprocess.run(base+['copyto',str(snapshot),remote,'--checksum','--contimeout','10s','--timeout','20s','--retries','1'],capture_output=True,timeout=45)
+        copied=run_provider(base+['copyto',str(snapshot),remote,'--checksum','--contimeout','10s','--timeout','20s','--retries','1'],capture_output=True,timeout=45)
         if copied.returncode:raise ValueError('safety_index_copy_failed')
-        result=subprocess.run(base+['lsjson',remote,'--stat','--hash'],capture_output=True,text=True,timeout=20)
+        result=run_provider(base+['lsjson',remote,'--stat','--hash'],capture_output=True,text=True,timeout=20)
         data=json.loads(result.stdout)
         if result.returncode or data.get('Size')!=metadata['bytes'] or data.get('Hashes',{}).get('md5')!=metadata['md5']:
             raise ValueError('safety_index_verification_failed')
@@ -160,7 +161,7 @@ class SafetyArchive:
                 self.stop.wait(.25);continue
             path=self.work/clip['local']
             try:
-                metadata=fingerprints(path)
+                metadata=fingerprints(path, deadline=time.monotonic()+30)
                 receipt=self.upload(path,metadata)
                 if not isinstance(receipt,dict) or not receipt.get('verification'):
                     raise ValueError('safety_receipt_unverified')
@@ -168,7 +169,8 @@ class SafetyArchive:
                     clip.update(status='uploaded',receipt=receipt,bytes=metadata['bytes'],sha256=metadata['sha256'])
                 path.unlink(missing_ok=True)
                 self.save()
-                try:self.upload_index(receipt)
+                try:
+                    if not self.stop.is_set():self.upload_index(receipt)
                 except (OSError,ValueError,subprocess.TimeoutExpired):self.last_error='safety_index_upload_pending'
             except (OSError,ValueError,PublishError,subprocess.TimeoutExpired):
                 with self.lock:
@@ -182,7 +184,9 @@ class SafetyArchive:
     def run(self, capture_done):
         self.save()
         if self.state=='not_configured':return
-        worker=threading.Thread(target=self.upload_pending,daemon=True);worker.start()
+        worker=threading.Thread(target=self.upload_pending,daemon=True)
+        self.upload_worker=worker
+        worker.start()
         try:
             while not capture_done.is_set() and not self.stop.is_set():
                 self.stage();capture_done.wait(10)
@@ -190,6 +194,13 @@ class SafetyArchive:
             self.capture_finished=True
             worker.join(timeout=120)
         finally:
-            self.stop.set();worker.join(timeout=5)
+            # A current Drive operation has a90s budget, followed by at most
+            #65s of index I/O (and30s hash budget before it). Do not delete the
+            # private configuration while the owned uploader can still use it.
+            self.stop.set()
+            cancel_provider_processes()
+            worker.join(timeout=40)
+            if worker.is_alive():
+                self.last_error='safety_uploader_shutdown_deadline_exceeded'
             self.state=('no_safety_media' if not self.clips else ('completed' if all(c['status']=='uploaded' for c in self.clips) else 'pending_backup_clips'))
             self.save()
