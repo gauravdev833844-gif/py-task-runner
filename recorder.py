@@ -259,7 +259,7 @@ def install_dependencies():
 
 
 def js_runtime_args():
-    args = ["--remote-components", "ejs:github"]
+    args = []
     if command_exists("node"):
         args += ["--js-runtimes", "node"]
     elif command_exists("nodejs"):
@@ -387,8 +387,9 @@ def is_live_candidate(info):
 
 def run_ytdlp_json(url, client):
     command = [
-        sys.executable, "-m", "yt_dlp", "--no-config", "-J",
+        sys.executable, "-m", "yt_dlp", "--no-config", "--no-cache-dir", "-J",
         "--skip-download", "--no-warnings", "--ignore-no-formats-error",
+        "--socket-timeout", "15", "--retries", "1", "--extractor-retries", "1",
         "--playlist-items", "1",
     ] + JS_ARGS
 
@@ -507,44 +508,18 @@ def verify_live_id(video_id, source_kind):
 
 
 def probe_fast():
-    executor = ThreadPoolExecutor(max_workers=3)
-    futures = {
-        executor.submit(fetch_text, CHANNEL_URL): "home",
-        executor.submit(run_ytdlp_json, LIVE_URL, None): "default_live",
-        executor.submit(run_ytdlp_json, LIVE_URL, "web_safari"): "web_live",
-    }
-    home_html = ""
-    live_infos = {}
-
-    try:
-        for future in as_completed(futures, timeout=PROBE_TIMEOUT_SECONDS + 4):
-            kind = futures[future]
-            try:
-                value = future.result()
-            except Exception:
-                value = None
-            if kind == "home":
-                home_html = value or ""
-            else:
-                live_infos[kind] = value
-    except Exception:
-        pass
-    finally:
-        executor.shutdown(wait=False)
-
-    for key, client in (("default_live", None), ("web_live", "web_safari")):
-        info = live_infos.get(key)
-        if not info or not is_live_candidate(info):
-            continue
+    info = run_ytdlp_json(LIVE_URL, None)
+    if info and is_live_candidate(info):
         matched, reason = target_match(info)
-        if not matched:
-            continue
-        video_id = info["id"]
-        LIVE_DETECTED_EVER = True
-        log(f"detect_live | source=live_endpoint | live id={video_id} | client={client} | match={reason}")
-        return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": client}
+        if matched:
+            video_id = info["id"]
+            global LIVE_DETECTED_EVER
+            LIVE_DETECTED_EVER = True
+            log(f"detect_live | source=live_endpoint | live id={video_id} | client=default | match={reason}")
+            return {"id": video_id, "url": f"https://www.youtube.com/watch?v={video_id}", "source": "live_endpoint", "detected_client": None}
 
-
+    # Fallback to channel home page if direct live endpoint was inconclusive
+    home_html = fetch_text(CHANNEL_URL)
     for video_id in extract_live_badge_ids(home_html)[:2]:
         result = verify_live_id(video_id, "home_live_badge")
         if result:
@@ -682,7 +657,14 @@ def register_recovered_chunks(active):
     known = set(registered)
     recovered = []
 
-    candidates = glob.glob(os.path.join(active["chunk_dir"], "*.ts")) + glob.glob(os.path.join(active["chunk_dir"], "*.ts.part"))
+    candidates = [
+        p for p in (
+            glob.glob(os.path.join(active["chunk_dir"], "*.ts*"))
+            + glob.glob(os.path.join(active["chunk_dir"], "*.mp4*"))
+            + glob.glob(os.path.join(active["chunk_dir"], "*.mkv*"))
+        )
+        if not is_archived_short_exit(p)
+    ]
     for path in sorted(candidates, key=chunk_number):
         if is_archived_short_exit(path):
             continue
