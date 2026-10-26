@@ -509,9 +509,13 @@ def verify_live_id(video_id, source_kind):
 
 def probe_fast():
     info = run_ytdlp_json(LIVE_URL, None)
-    if info and is_live_candidate(info):
+    if not info:
+        log("probe_fast | ytdlp returned no info")
+    else:
+        is_live = is_live_candidate(info)
         matched, reason = target_match(info)
-        if matched:
+        log(f"probe_fast | id={info.get('id')} | is_live={is_live} | live_status={info.get('live_status')} | matched={matched} ({reason})")
+        if is_live and matched:
             video_id = info["id"]
             global LIVE_DETECTED_EVER
             LIVE_DETECTED_EVER = True
