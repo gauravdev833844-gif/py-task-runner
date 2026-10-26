@@ -123,8 +123,13 @@ jobs:
         timeout-minutes: 15
         run: |
           set -euo pipefail
+          if ! command -v rclone >/dev/null; then
+            curl -fsSL -o /tmp/rclone.deb https://github.com/rclone/rclone/releases/download/v1.68.2/rclone-v1.68.2-linux-amd64.deb
+            sudo dpkg -i /tmp/rclone.deb
+            rm -f /tmp/rclone.deb
+          fi
           missing=()
-          for executable in ffmpeg curl rclone; do
+          for executable in ffmpeg curl; do
             if ! command -v "$executable" >/dev/null; then missing+=("$executable"); fi
           done
           if ((${#missing[@]})); then
