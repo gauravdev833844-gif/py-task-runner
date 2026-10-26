@@ -120,7 +120,7 @@ jobs:
         with:
           node-version: '22'
       - name: Install dependencies and show actual free disk
-        timeout-minutes: 15
+        timeout-minutes: 5
         run: |
           set -euo pipefail
           if ! command -v rclone >/dev/null; then
@@ -128,15 +128,16 @@ jobs:
             sudo dpkg -i /tmp/rclone.deb
             rm -f /tmp/rclone.deb
           fi
-          missing=()
-          for executable in ffmpeg curl; do
-            if ! command -v "$executable" >/dev/null; then missing+=("$executable"); fi
-          done
-          if ((${#missing[@]})); then
-            sudo apt-get -o Acquire::Retries=3 update -qq
-            sudo apt-get install -y --no-install-recommends -o Acquire::Retries=3 "${missing[@]}"
+          if ! command -v ffmpeg >/dev/null; then
+            echo "Fetching static ffmpeg from yt-dlp official builds..."
+            curl -fsSL -o /tmp/ffmpeg.tar.xz https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-gpl.tar.xz
+            tar -xf /tmp/ffmpeg.tar.xz -C /tmp
+            sudo cp /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffmpeg /tmp/ffmpeg-master-latest-linux64-gpl/bin/ffprobe /usr/local/bin/
+            rm -rf /tmp/ffmpeg*
           fi
           python -m pip install -q 'yt-dlp[default,curl-cffi]==2026.10.21'
+          ffmpeg -version | head -n 1
+          rclone version | head -n 1
           df -h .
       - name: Record current window
 
