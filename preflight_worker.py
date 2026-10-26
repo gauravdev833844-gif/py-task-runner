@@ -358,29 +358,36 @@ def prerequisites():
     }
 
 
-def run_preflight(*, survey, channel, cookie_text, drive_text):
+def run_preflight(*, survey, channel, cookie_text, drive_text, drive_only=False):
     report = {
         "schema": "bounded-preflight-v1", "status": "FAIL",
         "tested_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-        "scope": "tiny_drive_roundtrip_and_youtube_metadata_only",
+        "scope": "tiny_drive_roundtrip_only" if drive_only else "tiny_drive_roundtrip_and_youtube_metadata_only",
         "media_downloaded": False, "overnight_workload_tested": False,
-        "client": "default", "metadata_timeout_seconds": OPERATION_SECONDS,
-        "prerequisites": prerequisites(), "sources": [], "survey_stopped": False,
+        "metadata_not_tested": True,
+        "client": None if drive_only else "default",
+        "metadata_timeout_seconds": None if drive_only else OPERATION_SECONDS,
+        "prerequisites": {"rclone_present": bool(shutil.which("rclone"))} if drive_only else prerequisites(),
+        "sources": [], "survey_stopped": False,
     }
-    channels = SURVEY_CHANNELS if survey else ((channel or "@SkyNews"),)
+    channels = () if drive_only else (SURVEY_CHANNELS if survey else ((channel or "@SkyNews"),))
     report["requested_channels"] = list(channels) if all(channel_url(value) for value in channels) else []
     report["cookie_binding_present"] = bool(cookie_text)
-    report["cookie_format_valid"] = cookie_syntax_valid(cookie_text)
+    if not drive_only:
+        report["cookie_format_valid"] = cookie_syntax_valid(cookie_text)
     with tempfile.TemporaryDirectory(prefix="bounded-preflight-private-") as private:
         Path(private).chmod(0o700)
         report["drive"] = drive_roundtrip(drive_text, private)
-        if not report["requested_channels"]:
+        if drive_only:
+            report["metadata_status"] = "skipped_source_denial_hold"
+        elif not report["requested_channels"]:
             report["metadata_status"] = "invalid_channel_input"
         elif not report["cookie_format_valid"]:
             report["metadata_status"] = "cookie_secret_missing_or_invalid"
         elif not (report["prerequisites"]["yt_dlp_pinned_version_ready"] and report["prerequisites"]["node_22_ready"]):
             report["metadata_status"] = "metadata_prerequisite_failed"
         else:
+            report["metadata_not_tested"] = False
             for candidate in channels:
                 row = probe_channel(candidate, cookie_text, private)
                 report["sources"].append(row)
@@ -389,7 +396,7 @@ def run_preflight(*, survey, channel, cookie_text, drive_text):
                     break
             report["metadata_status"] = "blocked" if report["survey_stopped"] else "completed"
     valid = any(row["source_validity"] == "valid_live_metadata" for row in report["sources"])
-    if report["drive"]["status"] == "PASS" and valid and not report["survey_stopped"]:
+    if report["drive"]["status"] == "PASS" and (drive_only or (valid and not report["survey_stopped"])):
         report["status"] = "PASS"
     return report
 
@@ -400,15 +407,20 @@ def main():
     parser.add_argument("--survey", action="store_true", default=os.environ.get("PREFLIGHT_SURVEY", "false").casefold() == "true")
     parser.add_argument("--channel", default=os.environ.get("PREFLIGHT_CHANNEL", ""))
     args = parser.parse_args()
+    drive_only = os.environ.get("PREFLIGHT_DRIVE_ONLY", "false").casefold() == "true"
     cookie_text = os.environ.pop("YT_COOKIES", "")
     drive_text = os.environ.pop("RCLONE_CONFIG_TEXT", "")
     try:
-        report = run_preflight(survey=args.survey, channel=args.channel, cookie_text=cookie_text, drive_text=drive_text)
+        report = run_preflight(survey=args.survey, channel=args.channel, cookie_text=cookie_text, drive_text=drive_text, drive_only=drive_only)
     except Exception:
         # Never print traceback/provider text: cookie parsers can include cookie lines.
         report = {
             "schema": "bounded-preflight-v1", "status": "FAIL",
             "failure": "unexpected_preflight_failure", "media_downloaded": False,
+            "scope": "tiny_drive_roundtrip_only" if drive_only else "tiny_drive_roundtrip_and_youtube_metadata_only",
+            "metadata_not_tested": True,
+            "metadata_status": "skipped_source_denial_hold" if drive_only else "preflight_interrupted",
+            "cookie_binding_present": bool(cookie_text),
             "drive": {"status": "FAIL", "failure": "preflight_interrupted"},
         }
     finally:
