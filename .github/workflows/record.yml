@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - "@BagadBillagang-p6s|UC6_0vYIN2dy3MvBuUSvtZJg"
+          - "@IndiaToday|UCYPvAwZP8pZhSMW8qs7cVCw"
 
     steps:
       - name: Checkout Repository
