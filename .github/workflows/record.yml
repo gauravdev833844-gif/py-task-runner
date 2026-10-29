@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       hours:
-        description: "Recording duration per shift in hours (default 4.0; use 0.2 for a 12-min test)"
+        description: "Recording duration per shift in hours (default 4.5)"
         required: false
-        default: "1.0"
+        default: "4.5"
         type: string
       shifts_left:
-        description: "Continuation shifts after this one (default 1 = up to 2 shifts / ~8h total; auto-disabled if hours < 1.0)"
+        description: "Continuation shifts after this one (default 1 = up to 2 shifts / 9h total)"
         required: false
         default: "1"
         type: string
