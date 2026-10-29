@@ -102,7 +102,7 @@ jobs:
           export OUT_DIR="./streams"
 
           # Disable auto-continuation on short tests (< 1.0 hour) so a 12-min @DWNews test doesn't spawn another run
-          export SHIFTS_LEFT=$(python3 -c "h=float('${HOURS}'); s=int('${INPUT_SHIFTS_LEFT:-0}' or 0); print(0 if h < 1.0 else max(0, s))")
+          export SHIFTS_LEFT=$(python3 -c "h=float('${HOURS}'); s=int('${INPUT_SHIFTS_LEFT:-0}' or 0); print(0 if h < 0.1 else max(0, s))")
           export ACTIVE_TARGET_DATA="$TARGET_DATA"
           export ALWAYS_CONTINUE=$(echo "${INPUT_ALWAYS_CONTINUE:-true}" | tr '[:upper:]' '[:lower:]')
 
