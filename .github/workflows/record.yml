@@ -1,6 +1,6 @@
 name: Stream Recorder
 
-on:
+'on':
   workflow_dispatch:
     inputs:
       hours:
@@ -203,70 +203,70 @@ jobs:
 
           # Session status report for Step Summary
           python3 - "$CHAINED_NOW" <<'PY'
-import glob, json, os, sys
-from recorder import classify_run_status, validate_finalized_recordings
+          import glob, json, os, sys
+          from recorder import classify_run_status, validate_finalized_recordings
 
-chained_now = (sys.argv[1] == "true") if len(sys.argv) > 1 else False
+          chained_now = (sys.argv[1] == "true") if len(sys.argv) > 1 else False
 
-d = {}
-for p in glob.glob("./streams/*_summary.json"):
-    try:
-        d = json.loads(open(p, encoding="utf-8").read())
-        break
-    except Exception:
-        pass
+          d = {}
+          for p in glob.glob("./streams/*_summary.json"):
+              try:
+                  d = json.loads(open(p, encoding="utf-8").read())
+                  break
+              except Exception:
+                  pass
 
-ch = d.get("channel") or os.environ.get("CHANNEL_HANDLE", "Channel")
-shifts_left = int(os.environ.get("SHIFTS_LEFT", "0") or 0)
-prewarm_dispatched = bool(d.get("continuation_dispatched"))
+          ch = d.get("channel") or os.environ.get("CHANNEL_HANDLE", "Channel")
+          shifts_left = int(os.environ.get("SHIFTS_LEFT", "0") or 0)
+          prewarm_dispatched = bool(d.get("continuation_dispatched"))
 
-step_lines = [f"### Session Report: `{ch}`"]
+          step_lines = [f"### Session Report: `{ch}`"]
 
-# 1. Chaining: CHAIN_PASS
-if shifts_left > 0:
-    if prewarm_dispatched or chained_now:
-        step_lines.append(f"- 🔗 **CHAIN_PASS**: Continuation shift dispatched (shifts_left remaining: {max(0, shifts_left - 1)})")
-    else:
-        step_lines.append(f"- ⚠️ **CHAIN_WAITING**: Next shift queued (shifts_left remaining: {max(0, shifts_left - 1)})")
-else:
-    step_lines.append("- 🔗 **CHAIN_PASS**: Final shift in chain completed as planned (shifts_left: 0)")
+          # 1. Chaining: CHAIN_PASS
+          if shifts_left > 0:
+              if prewarm_dispatched or chained_now:
+                  step_lines.append(f"- 🔗 **CHAIN_PASS**: Continuation shift dispatched (shifts_left remaining: {max(0, shifts_left - 1)})")
+              else:
+                  step_lines.append(f"- ⚠️ **CHAIN_WAITING**: Next shift queued (shifts_left remaining: {max(0, shifts_left - 1)})")
+          else:
+              step_lines.append("- 🔗 **CHAIN_PASS**: Final shift in chain completed as planned (shifts_left: 0)")
 
-# 2. Status Classification using production logic
-valid_media = validate_finalized_recordings("./streams")
-status = classify_run_status(d, valid_media)
+          # 2. Status Classification using production logic
+          valid_media = validate_finalized_recordings("./streams")
+          status = classify_run_status(d, valid_media)
 
-if status == "RECORD_PASS":
-    fname, sz = valid_media[0]
-    sz_mb = sz / 1048576
-    cnt = d.get("chunk_count") or len(valid_media)
-    step_lines.append(f"- 🎬 **RECORD_PASS**: Media captured successfully (`{os.path.basename(fname)}`, {sz_mb:.1f} MB, {cnt} chunks)")
-elif status == "BLOCKED_NO_CAPTURE":
-    reason = d.get("failure_reason") or "explicit rate-limit / botcheck"
-    step_lines.append(f"- 🚫 **BLOCKED_NO_CAPTURE**: YouTube rate-limited or restricted download ({reason}; 0.0 MB saved). No circumvention attempted.")
-elif status == "NO_LIVE_CONFIRMED":
-    c_off = (d.get("probe_stats") or {}).get("clean_offline", 0)
-    step_lines.append(f"- 💤 **NO_LIVE_CONFIRMED**: Streamer confirmed offline throughout shift (clean probes: {c_off}).")
-elif status == "UNVERIFIED":
-    step_lines.append("- ❓ **UNVERIFIED**: Offline status unverified (clean_offline=0, blocked=0, error=0).")
-elif status == "RESTRICTED_UNVERIFIED":
-    step_lines.append("- ⚠️ **RESTRICTED_UNVERIFIED**: Probes or download restricted without confirmed hourly rate limit.")
-elif status == "UNVERIFIED_NETWORK_ERROR":
-    stats = d.get("probe_stats") or {}
-    step_lines.append(f"- ⚠️ **UNVERIFIED_NETWORK_ERROR**: Probes encountered network/parse errors (clean_offline={stats.get('clean_offline',0)}, blocked={stats.get('blocked',0)}, error={stats.get('error',0)}).")
-else:
-    step_lines.append(f"- ❓ **UNVERIFIED**: Status {status}")
+          if status == "RECORD_PASS":
+              fname, sz = valid_media[0]
+              sz_mb = sz / 1048576
+              cnt = d.get("chunk_count") or len(valid_media)
+              step_lines.append(f"- 🎬 **RECORD_PASS**: Media captured successfully (`{os.path.basename(fname)}`, {sz_mb:.1f} MB, {cnt} chunks)")
+          elif status == "BLOCKED_NO_CAPTURE":
+              reason = d.get("failure_reason") or "explicit rate-limit / botcheck"
+              step_lines.append(f"- 🚫 **BLOCKED_NO_CAPTURE**: YouTube rate-limited or restricted download ({reason}; 0.0 MB saved). No circumvention attempted.")
+          elif status == "NO_LIVE_CONFIRMED":
+              c_off = (d.get("probe_stats") or {}).get("clean_offline", 0)
+              step_lines.append(f"- 💤 **NO_LIVE_CONFIRMED**: Streamer confirmed offline throughout shift (clean probes: {c_off}).")
+          elif status == "UNVERIFIED":
+              step_lines.append("- ❓ **UNVERIFIED**: Offline status unverified (clean_offline=0, blocked=0, error=0).")
+          elif status == "RESTRICTED_UNVERIFIED":
+              step_lines.append("- ⚠️ **RESTRICTED_UNVERIFIED**: Probes or download restricted without confirmed hourly rate limit.")
+          elif status == "UNVERIFIED_NETWORK_ERROR":
+              stats = d.get("probe_stats") or {}
+              step_lines.append(f"- ⚠️ **UNVERIFIED_NETWORK_ERROR**: Probes encountered network/parse errors (clean_offline={stats.get('clean_offline',0)}, blocked={stats.get('blocked',0)}, error={stats.get('error',0)}).")
+          else:
+              step_lines.append(f"- ❓ **UNVERIFIED**: Status {status}")
 
-summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
-if summary_file:
-    try:
-        with open(summary_file, "a", encoding="utf-8") as sf:
-            sf.write("\n".join(step_lines) + "\n\n")
-    except Exception:
-        pass
+          summary_file = os.environ.get("GITHUB_STEP_SUMMARY")
+          if summary_file:
+              try:
+                  with open(summary_file, "a", encoding="utf-8") as sf:
+                      sf.write("\n".join(step_lines) + "\n\n")
+              except Exception:
+                  pass
 
-for l in step_lines:
-    print(l)
-PY
+          for l in step_lines:
+              print(l)
+          PY
 
           exit "${RECORDER_RC:-0}"
 
