@@ -6,7 +6,7 @@ name: Stream Recorder
       hours:
         description: "Recording duration per shift in hours (default 4.5 = 9.0h total over 2 shifts)"
         required: false
-        default: "4.5"
+        default: "5.0"
         type: string
       shifts_left:
         description: "Continuation shifts after this one (default 1 = up to 2 shifts / ~8h total; auto-disabled if hours < 1.0)"
@@ -217,7 +217,7 @@ jobs:
       - name: Run Recorder
         env:
           TARGET_DATA: ${{ matrix.target }}
-          INPUT_HOURS: ${{ github.event.inputs.hours || '4.5' }}
+          INPUT_HOURS: ${{ github.event.inputs.hours || '5.0' }}
           INPUT_SHIFTS_LEFT: ${{ github.event.inputs.shifts_left || '2' }}
           INPUT_ALWAYS_CONTINUE: ${{ github.event.inputs.always_continue || 'true' }}
           INPUT_USE_COOKIES: ${{ github.event.inputs.use_cookies || 'true' }}
