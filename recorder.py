@@ -43,7 +43,7 @@ except Exception:
 CHANNEL_HANDLE = os.getenv("CHANNEL_HANDLE", "@Apka-aashu").strip()
 TARGET_CHANNEL_ID = os.getenv("TARGET_CHANNEL_ID", "UCGFi8l9sf5ab4hVJf7byBZg").strip()
 START_AT_IST = os.getenv("START_AT_IST", "").strip()
-HOURS = min(4.5, max(0.05, float(os.getenv("HOURS", "4.0"))))
+HOURS = min(5.0, max(0.05, float(os.getenv("HOURS", "5.0"))))
 SHIFTS_LEFT = int(os.getenv("SHIFTS_LEFT", "0") or "0")
 ALWAYS_CONTINUE = os.getenv("ALWAYS_CONTINUE", "true").strip().lower() in ("1", "true", "yes")
 OUT_DIR = os.getenv("OUT_DIR", "./streams").strip()
@@ -98,7 +98,7 @@ POLL_INTERVAL_SECONDS = 2
 STALL_SECONDS = 240
 OFFLINE_GRACE_SECONDS = 180
 FAILURE_COOLDOWN_SECONDS = 8
-PREWARM_LEAD_SECONDS = 1800  # 30m early pre-warm overlap
+PREWARM_LEAD_SECONDS = 2700  # 45m early pre-warm overlap
 PREWARM_MAX_ATTEMPTS = 2
 PREWARM_BACKOFF_SECONDS = 60
 PREWARM_ACTIVE_GROWTH_SEC = 15
