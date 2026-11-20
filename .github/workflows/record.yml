@@ -220,7 +220,7 @@ jobs:
           INPUT_HOURS: ${{ github.event.inputs.hours || '4.5' }}
           INPUT_SHIFTS_LEFT: ${{ github.event.inputs.shifts_left || '2' }}
           INPUT_ALWAYS_CONTINUE: ${{ github.event.inputs.always_continue || 'true' }}
-          INPUT_USE_COOKIES: ${{ github.event.inputs.use_cookies || 'false' }}
+          INPUT_USE_COOKIES: ${{ github.event.inputs.use_cookies || 'true' }}
           YT_COOKIES: ${{ secrets.YT_COOKIES }}
           GH_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
           GH_FALLBACK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -229,7 +229,7 @@ jobs:
           # Default Cookie-Free (matching Kaggle v2.3 & john-ansh): expired/shared YT_COOKIES across 16 repos
           # causes YouTube to block the account session ('The current session has been rate-limited for up to an hour')
           # and disables android_vr/ios clients in yt-dlp!
-          export USE_COOKIES="false"
+          export USE_COOKIES="true"
           export COOKIE_FILE=""
           if [ -n "$YT_COOKIES" ]; then
             printf "%s\n" "$YT_COOKIES" > /tmp/fallback_cookies.txt
